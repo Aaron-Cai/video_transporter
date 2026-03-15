@@ -5,13 +5,15 @@ import logging
 import subprocess
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 from ..config import settings
 
 
 logger = logging.getLogger("video_transporter.download")
+
+DownloaderFlavor = Literal["yt-dlp", "youtube-dl"]
 
 
 class YoutubeDlClient:
@@ -29,11 +31,23 @@ class YoutubeDlClient:
             return self.preferred_executable
         return self.fallback_executable
 
+    @property
+    def downloader_flavor(self) -> DownloaderFlavor:
+        executable_name = self.executable.name.lower()
+        if "yt-dlp" in executable_name:
+            return "yt-dlp"
+        return "youtube-dl"
+
     def _run(self, args: list[str]) -> subprocess.CompletedProcess[str]:
         if not self.executable.exists():
             raise FileNotFoundError(f"Downloader executable not found: {self.executable}")
         full_args = self._with_common_args(args)
-        logger.info("Running downloader %s with args: %s", self.executable.name, full_args)
+        logger.info(
+            "Running downloader %s (flavor=%s) with args: %s",
+            self.executable.name,
+            self.downloader_flavor,
+            full_args,
+        )
         try:
             return subprocess.run(
                 [str(self.executable), *full_args],
@@ -54,14 +68,7 @@ class YoutubeDlClient:
     def list_channel_videos(self, channel_url: str) -> list[dict[str, Any]]:
         normalized_url = self._normalize_channel_url(channel_url)
         logger.info("Listing channel videos: %s", normalized_url)
-        result = self._run(
-            [
-                "--ignore-errors",
-                "--flat-playlist",
-                "--dump-single-json",
-                normalized_url,
-            ]
-        )
+        result = self._run(self._build_list_channel_args(normalized_url))
         payload = json.loads(result.stdout or "{}")
         entries = payload.get("entries") or []
         logger.info("Channel scan completed: %s videos discovered", len(entries))
@@ -83,17 +90,7 @@ class YoutubeDlClient:
             logger.info("Sleeping %.2f seconds before download to reduce request frequency", self.download_interval_seconds)
             time.sleep(self.download_interval_seconds)
         logger.info("Starting video download: channel=%s url=%s", channel_name, video_url)
-        result = self._run(
-            [
-                "--ignore-errors",
-                "--no-overwrites",
-                "--download-archive",
-                str(self.archive_file),
-                "-o",
-                output_template,
-                video_url,
-            ]
-        )
+        result = self._run(self._build_download_args(video_url, output_template))
         last_path = self._extract_destination_path(result.stdout)
         if last_path:
             logger.info("Video download completed: %s", last_path)
@@ -106,6 +103,41 @@ class YoutubeDlClient:
         if self.cookies_path and self.cookies_path.exists():
             common_args.extend(["--cookies", str(self.cookies_path)])
         return [*common_args, *args]
+
+    def _build_list_channel_args(self, channel_url: str) -> list[str]:
+        args = [
+            "--ignore-errors",
+            "--flat-playlist",
+            "--dump-single-json",
+        ]
+        if self.downloader_flavor == "yt-dlp":
+            args.extend(self._yt_dlp_listing_args())
+        return [*args, channel_url]
+
+    def _build_download_args(self, video_url: str, output_template: str) -> list[str]:
+        args = [
+            "--ignore-errors",
+            "--no-overwrites",
+            "--download-archive",
+            str(self.archive_file),
+            "-o",
+            output_template,
+        ]
+        if self.downloader_flavor == "yt-dlp":
+            args.extend(self._yt_dlp_download_args())
+        return [*args, video_url]
+
+    @staticmethod
+    def _yt_dlp_listing_args() -> list[str]:
+        # Keep yt-dlp-only flags isolated so future changes must explicitly
+        # consider whether youtube-dl supports the same behavior.
+        return []
+
+    @staticmethod
+    def _yt_dlp_download_args() -> list[str]:
+        # Keep yt-dlp-only flags isolated so future changes must explicitly
+        # consider whether youtube-dl supports the same behavior.
+        return []
 
     @staticmethod
     def _normalize_channel_url(channel_url: str) -> str:

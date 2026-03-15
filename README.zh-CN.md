@@ -49,6 +49,23 @@ npm run dev
 
 开发模式下前端默认运行在 `http://127.0.0.1:5173`，并自动代理到后端接口。
 
+## Windows 一键启动
+
+```powershell
+.\start-dev.cmd
+```
+
+该命令会分别打开前后端终端窗口，并在启动前自动执行后端的 `uv sync` 与前端的 `npm install`，随后启动两个开发服务。
+
+## macOS 和 Linux 一键启动
+
+```bash
+chmod +x ./start-dev.sh
+./start-dev.sh
+```
+
+该命令会在当前终端中同时运行前后端，并在启动前自动执行后端的 `uv sync` 与前端的 `npm install`，随后一起启动两个开发服务。
+
 ## 日志输出
 
 - 应用与接口日志: `logs/app.log`

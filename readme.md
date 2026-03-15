@@ -49,6 +49,23 @@ npm run dev
 
 In development mode, the frontend runs on `http://127.0.0.1:5173` by default and proxies API requests to the backend automatically.
 
+## One-Click Startup on Windows
+
+```powershell
+.\start-dev.cmd
+```
+
+This opens separate terminal windows for the backend and frontend, runs `uv sync` for the backend, and `npm install` for the frontend before starting both dev servers.
+
+## One-Click Startup on macOS and Linux
+
+```bash
+chmod +x ./start-dev.sh
+./start-dev.sh
+```
+
+This runs the backend and frontend in the current terminal, starts `uv sync` for the backend and `npm install` for the frontend first, and then launches both dev servers together.
+
 ## Logging
 
 - Application and API logs: `logs/app.log`
