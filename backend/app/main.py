@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .api.channels import router as channel_router
 from .config import settings
-from .database import Base, engine
+from .database import Base, engine, ensure_schema
 from .logging_config import configure_logging
 from .scheduler import ChannelScheduler
 from .services.sync_service import SyncManager
@@ -29,6 +29,7 @@ async def lifespan(_: FastAPI):
     settings.download_dir.mkdir(parents=True, exist_ok=True)
     settings.logs_dir.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
+    ensure_schema()
     scheduler.start()
     try:
         yield

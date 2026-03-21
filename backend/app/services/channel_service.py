@@ -35,6 +35,7 @@ class ChannelService:
                 description=channel.description,
                 poll_minutes=channel.poll_minutes,
                 auto_download=channel.auto_download,
+                download_concurrency=channel.download_concurrency,
                 status=channel.status,
                 last_checked_at=channel.last_checked_at,
                 last_sync_at=channel.last_sync_at,
@@ -79,6 +80,7 @@ class ChannelService:
             description=payload.description,
             poll_minutes=payload.poll_minutes,
             auto_download=payload.auto_download,
+            download_concurrency=payload.download_concurrency,
             status=payload.status,
         )
         self.db.add(channel)

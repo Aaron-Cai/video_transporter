@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from threading import Lock
 from concurrent.futures import ThreadPoolExecutor
 
 from sqlalchemy.orm import Session
@@ -18,7 +19,8 @@ class SyncManager:
     def __init__(self, youtube_dl: YoutubeDlClient) -> None:
         self.youtube_dl = youtube_dl
         self.sync_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="channel-sync")
-        self.download_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="video-download")
+        self.download_executors: dict[int, tuple[int, ThreadPoolExecutor]] = {}
+        self.download_executors_lock = Lock()
 
     def submit_sync(self, channel_id: int) -> None:
         logger.info("Queueing channel sync: channel_id=%s", channel_id)
@@ -26,11 +28,28 @@ class SyncManager:
 
     def submit_video_download(self, channel_id: int, video_id: int) -> None:
         logger.info("Queueing video download: channel_id=%s video_id=%s", channel_id, video_id)
-        self.download_executor.submit(self._download_video_by_id, channel_id, video_id)
+        db = SessionLocal()
+        try:
+            channel = ChannelService(db).get_channel(channel_id)
+            if channel is None:
+                logger.warning(
+                    "Video download skipped because channel does not exist when queueing: channel_id=%s video_id=%s",
+                    channel_id,
+                    video_id,
+                )
+                return
+            executor = self._get_download_executor(channel_id, channel.download_concurrency)
+            executor.submit(self._download_video_by_id, channel_id, video_id)
+        finally:
+            db.close()
 
     def shutdown(self) -> None:
         self.sync_executor.shutdown(wait=False, cancel_futures=False)
-        self.download_executor.shutdown(wait=False, cancel_futures=False)
+        with self.download_executors_lock:
+            executors = list(self.download_executors.values())
+            self.download_executors.clear()
+        for _, executor in executors:
+            executor.shutdown(wait=False, cancel_futures=False)
 
     def retry_failed_downloads(self, channel_id: int, *, limit: int = 20) -> int:
         db = SessionLocal()
@@ -135,3 +154,18 @@ class SyncManager:
         except Exception as exc:  # noqa: BLE001
             logger.exception("Video download failed for video_id=%s", video_id)
             service.update_video_status(video, status=DownloadStatus.FAILED, error_message=str(exc))
+
+    def _get_download_executor(self, channel_id: int, max_workers: int) -> ThreadPoolExecutor:
+        normalized_workers = max(1, min(5, max_workers))
+        with self.download_executors_lock:
+            existing = self.download_executors.get(channel_id)
+            if existing is not None and existing[0] == normalized_workers:
+                return existing[1]
+            if existing is not None:
+                existing[1].shutdown(wait=False, cancel_futures=False)
+            executor = ThreadPoolExecutor(
+                max_workers=normalized_workers,
+                thread_name_prefix=f"video-download-{channel_id}",
+            )
+            self.download_executors[channel_id] = (normalized_workers, executor)
+            return executor

@@ -26,6 +26,7 @@ export interface ChannelListItem {
   description: string | null;
   poll_minutes: number;
   auto_download: boolean;
+  download_concurrency: number;
   status: ChannelStatus;
   last_checked_at: string | null;
   last_sync_at: string | null;
@@ -49,6 +50,7 @@ export interface ChannelFormState {
   description: string;
   poll_minutes: number;
   auto_download: boolean;
+  download_concurrency: number;
   status: ChannelStatus;
   trigger_initial_sync: boolean;
 }

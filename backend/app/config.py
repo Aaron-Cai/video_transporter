@@ -18,7 +18,8 @@ class Settings(BaseSettings):
     youtube_cookies_path: Path | None = BASE_DIR / "cookies.txt"
     default_poll_minutes: int = 30
     log_backup_days: int = 14
-    download_interval_seconds: float = 2.0
+    download_interval_min_seconds: float = 8.0
+    download_interval_max_seconds: float = 20.0
 
     model_config = SettingsConfigDict(
         env_prefix="VIDEO_TRANSPORTER_",

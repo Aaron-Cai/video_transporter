@@ -77,10 +77,12 @@ chmod +x ./start-dev.sh
 
 - 程序会优先使用 `bin/yt-dlp.exe`
 - 如果项目根目录存在 `cookies.txt`，会自动在下载时带上 cookies
-- 默认每次下载前间隔 2 秒，避免过于密集地请求 YouTube
+- 默认使用单个下载 worker，减少并发请求
+- 默认每次下载前会随机等待 8 到 20 秒，避免过于密集地请求 YouTube
 - 失败任务支持按“最近失败的前 N 个”重新加入队列，默认 20 个
 - 可通过 `.env` 覆盖：
   - `VIDEO_TRANSPORTER_YT_DLP_PATH`
   - `VIDEO_TRANSPORTER_YOUTUBE_DL_PATH`
   - `VIDEO_TRANSPORTER_YOUTUBE_COOKIES_PATH`
-  - `VIDEO_TRANSPORTER_DOWNLOAD_INTERVAL_SECONDS`
+  - `VIDEO_TRANSPORTER_DOWNLOAD_INTERVAL_MIN_SECONDS`
+  - `VIDEO_TRANSPORTER_DOWNLOAD_INTERVAL_MAX_SECONDS`

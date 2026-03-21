@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import subprocess
 import time
 from pathlib import Path
@@ -23,7 +24,8 @@ class YoutubeDlClient:
         self.download_dir = download_dir
         self.archive_file = download_dir / "youtube-dl-archive.txt"
         self.cookies_path = settings.youtube_cookies_path
-        self.download_interval_seconds = settings.download_interval_seconds
+        self.download_interval_min_seconds = settings.download_interval_min_seconds
+        self.download_interval_max_seconds = settings.download_interval_max_seconds
 
     @property
     def executable(self) -> Path:
@@ -86,9 +88,10 @@ class YoutubeDlClient:
         channel_dir = self.download_dir / self._safe_dir_name(channel_name)
         channel_dir.mkdir(parents=True, exist_ok=True)
         output_template = str(channel_dir / "%(upload_date)s [%(id)s].%(ext)s")
-        if self.download_interval_seconds > 0:
-            logger.info("Sleeping %.2f seconds before download to reduce request frequency", self.download_interval_seconds)
-            time.sleep(self.download_interval_seconds)
+        sleep_seconds = self._get_download_interval_seconds()
+        if sleep_seconds > 0:
+            logger.info("Sleeping %.2f seconds before download to reduce request frequency", sleep_seconds)
+            time.sleep(sleep_seconds)
         logger.info("Starting video download: channel=%s url=%s", channel_name, video_url)
         result = self._run(self._build_download_args(video_url, output_template))
         last_path = self._extract_destination_path(result.stdout)
@@ -154,6 +157,13 @@ class YoutubeDlClient:
         unsafe_chars = '<>:"/\\|?*'
         safe = "".join("_" if char in unsafe_chars else char for char in value).strip()
         return safe or "channel"
+
+    def _get_download_interval_seconds(self) -> float:
+        min_seconds = max(0.0, self.download_interval_min_seconds)
+        max_seconds = max(min_seconds, self.download_interval_max_seconds)
+        if min_seconds == max_seconds:
+            return min_seconds
+        return random.uniform(min_seconds, max_seconds)
 
     @staticmethod
     def _extract_destination_path(stdout: str) -> str | None:

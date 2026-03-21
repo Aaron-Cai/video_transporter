@@ -77,10 +77,12 @@ This runs the backend and frontend in the current terminal, starts `uv sync` for
 
 - The app prefers `bin/yt-dlp.exe`
 - If `cookies.txt` exists in the project root, it is automatically used for downloads
-- A 2-second interval is applied before each download by default to avoid overly aggressive requests to YouTube
+- Downloads run with a single worker by default to reduce concurrent requests
+- A random 8 to 20 second interval is applied before each download by default to avoid overly aggressive requests to YouTube
 - Failed tasks can be re-queued by selecting the most recent failed `N` items, with a default of 20
 - The following values can be overridden via `.env`:
   - `VIDEO_TRANSPORTER_YT_DLP_PATH`
   - `VIDEO_TRANSPORTER_YOUTUBE_DL_PATH`
   - `VIDEO_TRANSPORTER_YOUTUBE_COOKIES_PATH`
-  - `VIDEO_TRANSPORTER_DOWNLOAD_INTERVAL_SECONDS`
+  - `VIDEO_TRANSPORTER_DOWNLOAD_INTERVAL_MIN_SECONDS`
+  - `VIDEO_TRANSPORTER_DOWNLOAD_INTERVAL_MAX_SECONDS`

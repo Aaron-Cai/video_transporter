@@ -16,6 +16,7 @@ const initialForm: ChannelFormState = {
   description: "",
   poll_minutes: 30,
   auto_download: true,
+  download_concurrency: 1,
   status: "active",
   trigger_initial_sync: true,
 };
@@ -115,6 +116,7 @@ export function App() {
       description: channel.description ?? "",
       poll_minutes: channel.poll_minutes,
       auto_download: channel.auto_download,
+      download_concurrency: channel.download_concurrency,
       status: channel.status,
       trigger_initial_sync: false,
     });
@@ -349,6 +351,10 @@ export function App() {
                   </strong>
                 </div>
                 <div>
+                  <span>下载并发</span>
+                  <strong>{selectedChannel.download_concurrency}</strong>
+                </div>
+                <div>
                   <span>最近检查</span>
                   <strong>{formatDate(selectedChannel.last_checked_at)}</strong>
                 </div>
@@ -494,6 +500,26 @@ export function App() {
                     }
                   />
                 </label>
+                <label>
+                  <span>下载并发数</span>
+                  <select
+                    value={form.download_concurrency}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        download_concurrency: Number(event.target.value),
+                      })
+                    }
+                  >
+                    <option value={1}>1</option>
+                    <option value={2}>2</option>
+                    <option value={3}>3</option>
+                    <option value={4}>4</option>
+                    <option value={5}>5</option>
+                  </select>
+                </label>
+              </div>
+              <div className="grid-two">
                 <label>
                   <span>状态</span>
                   <select
