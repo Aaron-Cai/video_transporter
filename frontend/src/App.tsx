@@ -42,6 +42,10 @@ function formatDate(value: string | null): string {
   }).format(date);
 }
 
+function toDownloadHref(videoId: number): string {
+  return `/api/channels/videos/${videoId}/play`;
+}
+
 export function App() {
   const [channels, setChannels] = useState<ChannelListItem[]>([]);
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
@@ -388,7 +392,21 @@ export function App() {
                   <div className="video-row" key={video.id}>
                     <span>{video.title ?? video.youtube_video_id}</span>
                     <span>{video.status}</span>
-                    <span>{video.download_path ?? "-"}</span>
+                    <span>
+                      {video.download_path ? (
+                        <a
+                          className="download-link"
+                          href={toDownloadHref(video.id)}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={video.download_path}
+                        >
+                          {video.download_path}
+                        </a>
+                      ) : (
+                        "-"
+                      )}
+                    </span>
                   </div>
                 ))}
                 {!selectedChannel.videos.length ? (

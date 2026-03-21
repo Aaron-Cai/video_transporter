@@ -1,6 +1,10 @@
+import html
+import mimetypes
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi.responses import FileResponse, HTMLResponse
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -35,6 +39,22 @@ def _get_channel_or_404(service: ChannelService, channel_id: int) -> Any:
     return channel
 
 
+def _get_video_or_404(service: ChannelService, video_id: int) -> Any:
+    video = service.get_video(video_id)
+    if video is None:
+        raise HTTPException(status_code=404, detail="Video not found")
+    return video
+
+
+def _get_video_file_or_404(video: Any) -> Path:
+    if not video.download_path:
+        raise HTTPException(status_code=404, detail="Video file is not available")
+    file_path = Path(video.download_path)
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Video file was not found on disk")
+    return file_path
+
+
 @router.get("", response_model=list[ChannelListItem])
 def list_channels(db: Session = Depends(get_db)) -> list[ChannelListItem]:
     return ChannelService(db).list_channels()
@@ -44,6 +64,107 @@ def list_channels(db: Session = Depends(get_db)) -> list[ChannelListItem]:
 def get_channel(channel_id: int, db: Session = Depends(get_db)) -> ChannelRead:
     service = ChannelService(db)
     return _get_channel_or_404(service, channel_id)
+
+
+@router.get("/videos/{video_id}/stream")
+def stream_video(video_id: int, db: Session = Depends(get_db)) -> FileResponse:
+    service = ChannelService(db)
+    video = _get_video_or_404(service, video_id)
+    file_path = _get_video_file_or_404(video)
+    media_type, _ = mimetypes.guess_type(file_path.name)
+    return FileResponse(
+        path=file_path,
+        media_type=media_type or "application/octet-stream",
+        filename=file_path.name,
+    )
+
+
+@router.get("/videos/{video_id}/play", response_class=HTMLResponse)
+def play_video(video_id: int, request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
+    service = ChannelService(db)
+    video = _get_video_or_404(service, video_id)
+    file_path = _get_video_file_or_404(video)
+    title = html.escape(video.title or file_path.name)
+    stream_url = str(request.url_for("stream_video", video_id=video_id))
+    source_url = html.escape(stream_url, quote=True)
+    webpage_url = html.escape(video.webpage_url, quote=True)
+    page = f"""<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <style>
+      :root {{
+        color-scheme: dark;
+        font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      }}
+      body {{
+        margin: 0;
+        min-height: 100vh;
+        background:
+          radial-gradient(circle at top, rgba(71, 163, 255, 0.22), transparent 38%),
+          linear-gradient(180deg, #0c1118 0%, #06080d 100%);
+        color: #eef4ff;
+        display: grid;
+        place-items: center;
+      }}
+      main {{
+        width: min(1100px, calc(100vw - 32px));
+        padding: 24px;
+      }}
+      h1 {{
+        margin: 0 0 12px;
+        font-size: clamp(1.2rem, 2vw, 1.8rem);
+      }}
+      p {{
+        margin: 0 0 16px;
+        color: #aab6cc;
+        word-break: break-word;
+      }}
+      .player {{
+        overflow: hidden;
+        border-radius: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.04);
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+      }}
+      video {{
+        display: block;
+        width: 100%;
+        max-height: 78vh;
+        background: #000;
+      }}
+      .actions {{
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 16px;
+      }}
+      a {{
+        color: #7cc4ff;
+      }}
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>{title}</h1>
+      <p>{html.escape(str(file_path))}</p>
+      <div class="player">
+        <video controls autoplay preload="metadata">
+          <source src="{source_url}" />
+          当前浏览器无法直接播放该视频，可使用下方链接单独打开或下载。
+        </video>
+      </div>
+      <div class="actions">
+        <a href="{source_url}" target="_blank" rel="noreferrer">直接打开视频流</a>
+        <a href="{webpage_url}" target="_blank" rel="noreferrer">打开原始视频页面</a>
+      </div>
+    </main>
+  </body>
+</html>
+"""
+    return HTMLResponse(page)
 
 
 @router.post("", response_model=ChannelRead, status_code=status.HTTP_201_CREATED)
