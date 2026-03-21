@@ -1,6 +1,7 @@
 :root {
   font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   color: #f2f3ee;
+  color-scheme: dark;
   background:
     radial-gradient(
       circle at top left,
@@ -73,6 +74,18 @@ select {
   border: 1px solid rgba(255, 255, 255, 0.09);
   background: rgba(255, 255, 255, 0.04);
   color: #fff;
+}
+
+select,
+option,
+optgroup {
+  color-scheme: dark;
+}
+
+select option,
+select optgroup {
+  background: #161a20;
+  color: #f2f3ee;
 }
 
 #root {
