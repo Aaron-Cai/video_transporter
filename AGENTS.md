@@ -13,6 +13,7 @@
 - Format commit messages as `type(scope): summary`.
 - Restrict `type` to this fixed set: `feat`, `fix`, `refactor`, `docs`, `chore`, `style`.
 - Use these scopes for normal project work: `frontend`, `backend`, `config`.
-- Pick the scope that best matches the files changed. If a task spans multiple areas, choose the primary one or use `config` for repository-level workflow/config changes.
+- Include every affected scope in the commit message instead of picking only one primary scope.
+- When multiple scopes are involved, join them with commas, for example: `feat(frontend,backend): add video playback flow`.
 - Keep the summary concise and specific, for example: `feat(frontend): add browser playback links for downloads`.
 - Do not push to the remote unless the user explicitly asks to push.
