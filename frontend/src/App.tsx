@@ -47,6 +47,7 @@ export function App() {
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
   const [form, setForm] = useState<ChannelFormState>(initialForm);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [retryLimit, setRetryLimit] = useState(20);
@@ -82,6 +83,21 @@ export function App() {
     return () => window.clearInterval(timer);
   }, [autoRefresh, refreshSeconds, selectedChannel]);
 
+  useEffect(() => {
+    if (!isEditorOpen) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && !submitting) {
+        resetForm();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isEditorOpen, submitting]);
+
   async function handleSelect(channelId: number) {
     const detail = await fetchChannel(channelId);
     setSelectedChannel(detail);
@@ -98,11 +114,19 @@ export function App() {
       status: channel.status,
       trigger_initial_sync: false,
     });
+    setIsEditorOpen(true);
+  }
+
+  function handleCreate() {
+    setEditingId(null);
+    setForm(initialForm);
+    setIsEditorOpen(true);
   }
 
   function resetForm() {
     setEditingId(null);
     setForm(initialForm);
+    setIsEditorOpen(false);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -159,127 +183,43 @@ export function App() {
             管理频道、补齐历史视频，并按周期自动巡检新内容。
           </p>
         </div>
-        <div className="hero-meta">
-          <span>{channels.length} 个频道</span>
-          <span>
-            {channels.reduce(
-              (sum, item) => sum + item.completed_video_count,
-              0,
-            )}{" "}
-            个已下载视频
-          </span>
-          <span>显示时区 {currentTimeZone}</span>
+        <div className="hero-side">
+          <div className="hero-actions">
+            <button className="primary" onClick={handleCreate}>
+              新增频道
+            </button>
+            {selectedChannel ? (
+              <button onClick={() => handleEdit(selectedChannel)}>
+                编辑当前频道
+              </button>
+            ) : null}
+          </div>
+          <div className="hero-meta">
+            <span>{channels.length} 个频道</span>
+            <span>
+              {channels.reduce(
+                (sum, item) => sum + item.completed_video_count,
+                0,
+              )}{" "}
+              个已下载视频
+            </span>
+            <span>显示时区 {currentTimeZone}</span>
+          </div>
         </div>
       </section>
 
       <main className="layout">
         <section className="panel">
           <div className="panel-header">
-            <h2>{editingId ? "编辑频道" : "新增频道"}</h2>
-            {editingId ? <button onClick={resetForm}>取消编辑</button> : null}
-          </div>
-          <form className="channel-form" onSubmit={handleSubmit}>
-            <label>
-              <span>频道名称</span>
-              <input
-                value={form.name}
-                onChange={(event) =>
-                  setForm({ ...form, name: event.target.value })
-                }
-                required
-              />
-            </label>
-            <label>
-              <span>频道 URL</span>
-              <input
-                value={form.url}
-                onChange={(event) =>
-                  setForm({ ...form, url: event.target.value })
-                }
-                placeholder="https://www.youtube.com/@channel"
-                required
-              />
-            </label>
-            <label>
-              <span>描述</span>
-              <textarea
-                rows={3}
-                value={form.description}
-                onChange={(event) =>
-                  setForm({ ...form, description: event.target.value })
-                }
-              />
-            </label>
-            <div className="grid-two">
-              <label>
-                <span>巡检间隔(分钟)</span>
-                <input
-                  type="number"
-                  min={5}
-                  max={1440}
-                  value={form.poll_minutes}
-                  onChange={(event) =>
-                    setForm({
-                      ...form,
-                      poll_minutes: Number(event.target.value),
-                    })
-                  }
-                />
-              </label>
-              <label>
-                <span>状态</span>
-                <select
-                  value={form.status}
-                  onChange={(event) =>
-                    setForm({
-                      ...form,
-                      status: event.target.value as ChannelFormState["status"],
-                    })
-                  }
-                >
-                  <option value="active">启用</option>
-                  <option value="paused">暂停</option>
-                </select>
-              </label>
-            </div>
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={form.auto_download}
-                onChange={(event) =>
-                  setForm({ ...form, auto_download: event.target.checked })
-                }
-              />
-              <span>发现新视频后自动下载</span>
-            </label>
-            {!editingId ? (
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  checked={form.trigger_initial_sync}
-                  onChange={(event) =>
-                    setForm({
-                      ...form,
-                      trigger_initial_sync: event.target.checked,
-                    })
-                  }
-                />
-                <span>创建后立即下载频道全部存量视频</span>
-              </label>
-            ) : null}
-            <button className="primary" type="submit" disabled={submitting}>
-              {submitting ? "提交中..." : editingId ? "保存修改" : "创建频道"}
-            </button>
-          </form>
-          {message ? <p className="message">{message}</p> : null}
-        </section>
-
-        <section className="panel">
-          <div className="panel-header">
             <h2>频道列表</h2>
-            <button onClick={() => void loadChannels(selectedChannel?.id)}>
-              刷新
-            </button>
+            <div className="actions">
+              <button className="primary" onClick={handleCreate}>
+                新增频道
+              </button>
+              <button onClick={() => void loadChannels(selectedChannel?.id)}>
+                刷新
+              </button>
+            </div>
           </div>
           <div className="channel-list">
             {channels.map((channel) => (
@@ -301,9 +241,10 @@ export function App() {
               </article>
             ))}
             {!channels.length ? (
-              <p className="empty">还没有频道，先在左侧添加一个。</p>
+              <p className="empty">还没有频道，点击上方“新增频道”开始配置。</p>
             ) : null}
           </div>
+          {message ? <p className="message">{message}</p> : null}
         </section>
 
         <section className="panel detail-panel">
@@ -462,6 +403,132 @@ export function App() {
           )}
         </section>
       </main>
+
+      {isEditorOpen ? (
+        <div
+          className="modal-overlay"
+          onClick={() => {
+            if (!submitting) {
+              resetForm();
+            }
+          }}
+        >
+          <section
+            className="modal-panel"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="panel-header">
+              <div>
+                <p className="manager-label">
+                  {editingId ? "编辑频道" : "新增频道"}
+                </p>
+                <h2>{editingId ? "更新频道配置" : "创建新的频道任务"}</h2>
+              </div>
+              <button onClick={resetForm} disabled={submitting}>
+                关闭
+              </button>
+            </div>
+            <form className="channel-form" onSubmit={handleSubmit}>
+              <label>
+                <span>频道名称</span>
+                <input
+                  value={form.name}
+                  onChange={(event) =>
+                    setForm({ ...form, name: event.target.value })
+                  }
+                  required
+                />
+              </label>
+              <label>
+                <span>频道 URL</span>
+                <input
+                  value={form.url}
+                  onChange={(event) =>
+                    setForm({ ...form, url: event.target.value })
+                  }
+                  placeholder="https://www.youtube.com/@channel"
+                  required
+                />
+              </label>
+              <label>
+                <span>描述</span>
+                <textarea
+                  rows={3}
+                  value={form.description}
+                  onChange={(event) =>
+                    setForm({ ...form, description: event.target.value })
+                  }
+                />
+              </label>
+              <div className="grid-two">
+                <label>
+                  <span>巡检间隔(分钟)</span>
+                  <input
+                    type="number"
+                    min={5}
+                    max={1440}
+                    value={form.poll_minutes}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        poll_minutes: Number(event.target.value),
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  <span>状态</span>
+                  <select
+                    value={form.status}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        status: event.target.value as ChannelFormState["status"],
+                      })
+                    }
+                  >
+                    <option value="active">启用</option>
+                    <option value="paused">暂停</option>
+                  </select>
+                </label>
+              </div>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={form.auto_download}
+                  onChange={(event) =>
+                    setForm({ ...form, auto_download: event.target.checked })
+                  }
+                />
+                <span>发现新视频后自动下载</span>
+              </label>
+              {!editingId ? (
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={form.trigger_initial_sync}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        trigger_initial_sync: event.target.checked,
+                      })
+                    }
+                  />
+                  <span>创建后立即下载频道全部存量视频</span>
+                </label>
+              ) : null}
+              <div className="modal-actions">
+                <button type="button" onClick={resetForm} disabled={submitting}>
+                  取消
+                </button>
+                <button className="primary" type="submit" disabled={submitting}>
+                  {submitting ? "提交中..." : editingId ? "保存修改" : "创建频道"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }
