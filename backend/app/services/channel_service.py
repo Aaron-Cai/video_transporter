@@ -36,6 +36,8 @@ class ChannelService:
                 poll_minutes=channel.poll_minutes,
                 auto_download=channel.auto_download,
                 download_concurrency=channel.download_concurrency,
+                preferred_resolution=channel.preferred_resolution,
+                prefer_hdr=channel.prefer_hdr,
                 status=channel.status,
                 last_checked_at=channel.last_checked_at,
                 last_sync_at=channel.last_sync_at,
@@ -81,6 +83,8 @@ class ChannelService:
             poll_minutes=payload.poll_minutes,
             auto_download=payload.auto_download,
             download_concurrency=payload.download_concurrency,
+            preferred_resolution=payload.preferred_resolution,
+            prefer_hdr=payload.prefer_hdr,
             status=payload.status,
         )
         self.db.add(channel)

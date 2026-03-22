@@ -17,6 +17,8 @@ const initialForm: ChannelFormState = {
   poll_minutes: 30,
   auto_download: true,
   download_concurrency: 1,
+  preferred_resolution: 1080,
+  prefer_hdr: false,
   status: "active",
   trigger_initial_sync: true,
 };
@@ -117,6 +119,8 @@ export function App() {
       poll_minutes: channel.poll_minutes,
       auto_download: channel.auto_download,
       download_concurrency: channel.download_concurrency,
+      preferred_resolution: channel.preferred_resolution,
+      prefer_hdr: channel.prefer_hdr,
       status: channel.status,
       trigger_initial_sync: false,
     });
@@ -355,6 +359,14 @@ export function App() {
                   <strong>{selectedChannel.download_concurrency}</strong>
                 </div>
                 <div>
+                  <span>目标分辨率</span>
+                  <strong>{selectedChannel.preferred_resolution}p</strong>
+                </div>
+                <div>
+                  <span>HDR 偏好</span>
+                  <strong>{selectedChannel.prefer_hdr ? "优先 HDR" : "仅 SDR"}</strong>
+                </div>
+                <div>
                   <span>最近检查</span>
                   <strong>{formatDate(selectedChannel.last_checked_at)}</strong>
                 </div>
@@ -535,6 +547,25 @@ export function App() {
                     <option value="paused">暂停</option>
                   </select>
                 </label>
+                <label>
+                  <span>目标分辨率</span>
+                  <select
+                    value={form.preferred_resolution}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        preferred_resolution: Number(event.target.value),
+                      })
+                    }
+                  >
+                    <option value={2160}>2160p</option>
+                    <option value={1440}>1440p</option>
+                    <option value={1080}>1080p</option>
+                    <option value={720}>720p</option>
+                    <option value={480}>480p</option>
+                    <option value={360}>360p</option>
+                  </select>
+                </label>
               </div>
               <label className="checkbox">
                 <input
@@ -545,6 +576,16 @@ export function App() {
                   }
                 />
                 <span>发现新视频后自动下载</span>
+              </label>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={form.prefer_hdr}
+                  onChange={(event) =>
+                    setForm({ ...form, prefer_hdr: event.target.checked })
+                  }
+                />
+                <span>优先下载 HDR，若无 HDR 则回退到 SDR</span>
               </label>
               {!editingId ? (
                 <label className="checkbox">

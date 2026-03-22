@@ -27,6 +27,8 @@ export interface ChannelListItem {
   poll_minutes: number;
   auto_download: boolean;
   download_concurrency: number;
+  preferred_resolution: number;
+  prefer_hdr: boolean;
   status: ChannelStatus;
   last_checked_at: string | null;
   last_sync_at: string | null;
@@ -51,6 +53,8 @@ export interface ChannelFormState {
   poll_minutes: number;
   auto_download: boolean;
   download_concurrency: number;
+  preferred_resolution: number;
+  prefer_hdr: boolean;
   status: ChannelStatus;
   trigger_initial_sync: boolean;
 }

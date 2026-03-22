@@ -137,7 +137,12 @@ class SyncManager:
                 video.title,
             )
             service.update_video_status(video, status=DownloadStatus.DOWNLOADING)
-            download_path = self.youtube_dl.download_video(video.webpage_url, channel.name)
+            download_path = self.youtube_dl.download_video(
+                video.webpage_url,
+                channel.name,
+                preferred_resolution=channel.preferred_resolution,
+                prefer_hdr=channel.prefer_hdr,
+            )
             status = DownloadStatus.COMPLETED if download_path else DownloadStatus.SKIPPED
             service.update_video_status(
                 video,

@@ -3,13 +3,14 @@ from __future__ import annotations
 import json
 import logging
 import random
+import shutil
 import subprocess
 import time
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlparse
 
-from ..config import settings
+from ..config import BASE_DIR, settings
 
 
 logger = logging.getLogger("video_transporter.download")
@@ -26,6 +27,7 @@ class YoutubeDlClient:
         self.cookies_path = settings.youtube_cookies_path
         self.download_interval_min_seconds = settings.download_interval_min_seconds
         self.download_interval_max_seconds = settings.download_interval_max_seconds
+        self.ffmpeg_executable = self._detect_ffmpeg_executable()
 
     @property
     def executable(self) -> Path:
@@ -84,7 +86,14 @@ class YoutubeDlClient:
             if entry.get("id")
         ]
 
-    def download_video(self, video_url: str, channel_name: str) -> Path | None:
+    def download_video(
+        self,
+        video_url: str,
+        channel_name: str,
+        *,
+        preferred_resolution: int = 1080,
+        prefer_hdr: bool = False,
+    ) -> Path | None:
         channel_dir = self.download_dir / self._safe_dir_name(channel_name)
         channel_dir.mkdir(parents=True, exist_ok=True)
         output_template = str(channel_dir / "%(upload_date)s [%(id)s].%(ext)s")
@@ -93,7 +102,14 @@ class YoutubeDlClient:
             logger.info("Sleeping %.2f seconds before download to reduce request frequency", sleep_seconds)
             time.sleep(sleep_seconds)
         logger.info("Starting video download: channel=%s url=%s", channel_name, video_url)
-        result = self._run(self._build_download_args(video_url, output_template))
+        result = self._run(
+            self._build_download_args(
+                video_url,
+                output_template,
+                preferred_resolution=preferred_resolution,
+                prefer_hdr=prefer_hdr,
+            )
+        )
         last_path = self._extract_destination_path(result.stdout)
         if last_path:
             logger.info("Video download completed: %s", last_path)
@@ -117,7 +133,14 @@ class YoutubeDlClient:
             args.extend(self._yt_dlp_listing_args())
         return [*args, channel_url]
 
-    def _build_download_args(self, video_url: str, output_template: str) -> list[str]:
+    def _build_download_args(
+        self,
+        video_url: str,
+        output_template: str,
+        *,
+        preferred_resolution: int,
+        prefer_hdr: bool,
+    ) -> list[str]:
         args = [
             "--ignore-errors",
             "--no-overwrites",
@@ -127,7 +150,12 @@ class YoutubeDlClient:
             output_template,
         ]
         if self.downloader_flavor == "yt-dlp":
-            args.extend(self._yt_dlp_download_args())
+            args.extend(
+                self._yt_dlp_download_args(
+                    preferred_resolution=preferred_resolution,
+                    prefer_hdr=prefer_hdr,
+                )
+            )
         return [*args, video_url]
 
     @staticmethod
@@ -136,11 +164,47 @@ class YoutubeDlClient:
         # consider whether youtube-dl supports the same behavior.
         return []
 
-    @staticmethod
-    def _yt_dlp_download_args() -> list[str]:
+    def _yt_dlp_download_args(self, *, preferred_resolution: int, prefer_hdr: bool) -> list[str]:
         # Keep yt-dlp-only flags isolated so future changes must explicitly
         # consider whether youtube-dl supports the same behavior.
-        return []
+        normalized_resolution = max(144, preferred_resolution)
+        hdr_filter = "" if prefer_hdr else '[dynamic_range="SDR"]'
+        sort_order = "res,hdr" if prefer_hdr else "res,+hdr"
+        if self.ffmpeg_executable is not None:
+            preferred_format = (
+                f'bestvideo*{hdr_filter}[height<={normalized_resolution}]+bestaudio/'
+                f'best{hdr_filter}[height<={normalized_resolution}]'
+            )
+            fallback_format = f"bestvideo*{hdr_filter}+bestaudio/best{hdr_filter}"
+            return [
+                "--ffmpeg-location",
+                str(self.ffmpeg_executable.parent),
+                "-f",
+                f"{preferred_format}/{fallback_format}",
+                "-S",
+                sort_order,
+            ]
+
+        preferred_format = f"best{hdr_filter}[height<={normalized_resolution}]"
+        fallback_format = f"best{hdr_filter}"
+        return [
+            "-f",
+            f"{preferred_format}/{fallback_format}",
+            "-S",
+            sort_order,
+        ]
+
+    @staticmethod
+    def _detect_ffmpeg_executable() -> Path | None:
+        candidates = [
+            BASE_DIR / "bin" / "ffmpeg.exe",
+            BASE_DIR / "bin" / "ffmpeg",
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        system_ffmpeg = shutil.which("ffmpeg")
+        return Path(system_ffmpeg) if system_ffmpeg else None
 
     @staticmethod
     def _normalize_channel_url(channel_url: str) -> str:

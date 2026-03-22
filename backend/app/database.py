@@ -21,13 +21,19 @@ def ensure_schema() -> None:
         return
 
     channel_columns = {column["name"] for column in inspector.get_columns("channels")}
-    if "download_concurrency" in channel_columns:
-        return
-
     with engine.begin() as connection:
-        connection.execute(
-            text("ALTER TABLE channels ADD COLUMN download_concurrency INTEGER NOT NULL DEFAULT 1")
-        )
+        if "download_concurrency" not in channel_columns:
+            connection.execute(
+                text("ALTER TABLE channels ADD COLUMN download_concurrency INTEGER NOT NULL DEFAULT 1")
+            )
+        if "preferred_resolution" not in channel_columns:
+            connection.execute(
+                text("ALTER TABLE channels ADD COLUMN preferred_resolution INTEGER NOT NULL DEFAULT 1080")
+            )
+        if "prefer_hdr" not in channel_columns:
+            connection.execute(
+                text("ALTER TABLE channels ADD COLUMN prefer_hdr BOOLEAN NOT NULL DEFAULT 0")
+            )
 
 
 def get_db() -> Generator[Session, None, None]:

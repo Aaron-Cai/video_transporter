@@ -76,6 +76,9 @@ This runs the backend and frontend in the current terminal, starts `uv sync` for
 ## Download Notes
 
 - The app prefers `bin/yt-dlp.exe`
+- If you want yt-dlp to merge separate video/audio streams into a single complete file, make `ffmpeg` available either as `bin/ffmpeg.exe`, `bin/ffmpeg`, or via your system `PATH`
+- If `ffmpeg` is not available, the downloader falls back to a single-file format when possible so the result still includes both video and audio, but available resolutions may be more limited
+- After adding or replacing `ffmpeg` in `bin/` or on your system `PATH`, restart the backend service so the downloader can detect it again
 - If `cookies.txt` exists in the project root, it is automatically used for downloads
 - Downloads run with a single worker by default to reduce concurrent requests
 - A random 8 to 20 second interval is applied before each download by default to avoid overly aggressive requests to YouTube
