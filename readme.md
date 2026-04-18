@@ -73,6 +73,59 @@ This runs the backend and frontend in the current terminal, starts `uv sync` for
 - Both log streams are also printed to the backend terminal
 - Logs rotate daily and are retained for 14 days by default
 
+## Channel State Model
+
+The channel state fields describe two related but separate concepts:
+
+- `status`: Whether the channel participates in automatic scheduled checks.
+- `last_checked_at`: The most recent time the system attempted a channel check. Successful and failed attempts both update this value.
+- `last_sync_at`: The most recent time a channel check completed successfully and refreshed local video records.
+- `next_check_at`: The scheduler's next planned automatic check time. Paused channels do not have a scheduled next check.
+- `last_error`: The reason for the most recent failed check, grouped into a readable category when possible.
+
+`active` and `paused` are configuration states, not runtime task states. A paused channel is excluded from scheduled automatic checks, but the current implementation still allows manual sync.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Active: New channel defaults to active
+
+    Active --> Paused: Set status to paused
+    Paused --> Active: Set status to active
+
+    Active --> SyncTask: Scheduler reaches next_check_at
+    Active --> SyncTask: Click "Sync now"
+    Paused --> SyncTask: Click "Sync now"
+
+    Paused --> Paused: Scheduler does not queue checks
+
+    SyncTask --> Active: Task ends and channel is active
+    SyncTask --> Paused: Task ends and channel is paused
+```
+
+Each sync task attempts to list the channel videos and write them to the local database:
+
+```mermaid
+flowchart TD
+    A["Sync task starts"] --> B["List channel videos with yt-dlp / youtube-dl"]
+    B --> C{"List and parse succeeded?"}
+
+    C -->|No| D["Update last_checked_at\nKeep last_sync_at unchanged\nSet last_error"]
+    C -->|Yes| E["Upsert local video records"]
+    E --> F{"Database refresh succeeded?"}
+
+    F -->|No| D
+    F -->|Yes| G["Update last_checked_at\nUpdate last_sync_at\nClear last_error"]
+
+    G --> H{"auto_download enabled?"}
+    H -->|Yes| I["Queue unfinished videos for download"]
+    H -->|No| J["Do not queue downloads"]
+
+    I --> K["Download tasks run separately"]
+    J --> K
+```
+
+In short, `last_checked_at` answers "when did the system last try?", while `last_sync_at` answers "when did the channel list last refresh successfully?". Video downloads are separate tasks and do not update either channel timestamp.
+
 ## Download Notes
 
 - The app prefers `bin/yt-dlp.exe`
