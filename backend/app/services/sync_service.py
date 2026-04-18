@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import logging
-from threading import Lock
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
 
 from sqlalchemy.orm import Session
 
@@ -11,8 +13,63 @@ from ..models import Channel, DownloadStatus
 from .channel_service import ChannelService
 from .youtube_dl import YoutubeDlClient
 
-
 logger = logging.getLogger("video_transporter.sync")
+
+
+def classify_sync_error(exc: Exception) -> str:
+    if isinstance(exc, FileNotFoundError):
+        return f"下载器缺失：{exc}"
+
+    if isinstance(exc, json.JSONDecodeError):
+        return f"输出解析失败：下载器没有返回合法的频道列表 JSON（{exc}）"
+
+    if isinstance(exc, subprocess.CalledProcessError):
+        output = "\n".join(
+            part.strip()
+            for part in (exc.stderr or "", exc.stdout or "")
+            if part and part.strip()
+        )
+        detail = output[:1200] if output else str(exc)
+        lowered = output.lower()
+
+        if any(token in lowered for token in ("sign in", "login", "cookie", "cookies", "account")):
+            category = "登录或 Cookies 限制"
+        elif any(
+            token in lowered
+            for token in ("captcha", "not a bot", "confirm you're not a bot", "verification")
+        ):
+            category = "YouTube 验证或访问限制"
+        elif any(
+            token in lowered
+            for token in ("unsupported url", "no suitable extractor", "invalid url")
+        ):
+            category = "频道 URL 无效"
+        elif any(
+            token in lowered
+            for token in ("not available", "unavailable", "private", "deleted", "terminated")
+        ):
+            category = "频道不可访问"
+        elif any(
+            token in lowered
+            for token in (
+                "timed out",
+                "timeout",
+                "connection",
+                "network",
+                "dns",
+                "name resolution",
+                "temporary failure",
+            )
+        ):
+            category = "网络访问失败"
+        elif "http error 429" in lowered or "too many requests" in lowered:
+            category = "请求过于频繁"
+        else:
+            category = "下载器执行失败"
+
+        return f"{category}：{detail}"
+
+    return f"程序内部异常：{exc}"
 
 
 class SyncManager:
@@ -33,7 +90,8 @@ class SyncManager:
             channel = ChannelService(db).get_channel(channel_id)
             if channel is None:
                 logger.warning(
-                    "Video download skipped because channel does not exist when queueing: channel_id=%s video_id=%s",
+                    "Video download skipped because channel does not exist when queueing: "
+                    "channel_id=%s video_id=%s",
                     channel_id,
                     video_id,
                 )
@@ -74,7 +132,10 @@ class SyncManager:
             service = ChannelService(db)
             channel = service.get_channel(channel_id)
             if channel is None:
-                logger.warning("Channel sync skipped because channel does not exist: channel_id=%s", channel_id)
+                logger.warning(
+                    "Channel sync skipped because channel does not exist: channel_id=%s",
+                    channel_id,
+                )
                 return
             logger.info("Starting channel sync: channel_id=%s name=%s", channel.id, channel.name)
             entries = self.youtube_dl.list_channel_videos(channel.url)
@@ -96,7 +157,7 @@ class SyncManager:
             logger.exception("Channel sync failed for channel_id=%s", channel_id)
             channel = ChannelService(db).get_channel(channel_id)
             if channel is not None:
-                ChannelService(db).mark_channel_checked(channel, error=str(exc))
+                ChannelService(db).mark_channel_checked(channel, error=classify_sync_error(exc))
         finally:
             db.close()
 
@@ -106,7 +167,8 @@ class SyncManager:
             channel = ChannelService(db).get_channel(channel_id)
             if channel is None:
                 logger.warning(
-                    "Video download skipped because channel does not exist: channel_id=%s video_id=%s",
+                    "Video download skipped because channel does not exist: "
+                    "channel_id=%s video_id=%s",
                     channel_id,
                     video_id,
                 )
@@ -120,14 +182,25 @@ class SyncManager:
         channel_id = channel.id
         channel = service.get_channel(channel_id)
         if channel is None:
-            logger.warning("Video download skipped because channel vanished: channel_id=%s", channel_id)
+            logger.warning(
+                "Video download skipped because channel vanished: channel_id=%s",
+                channel_id,
+            )
             return
         video = service.get_video(video_id)
         if video is None:
-            logger.warning("Video download skipped because video does not exist: channel_id=%s video_id=%s", channel.id, video_id)
+            logger.warning(
+                "Video download skipped because video does not exist: channel_id=%s video_id=%s",
+                channel.id,
+                video_id,
+            )
             return
         if video.status == DownloadStatus.COMPLETED:
-            logger.info("Video download skipped because already completed: channel_id=%s video_id=%s", channel.id, video_id)
+            logger.info(
+                "Video download skipped because already completed: channel_id=%s video_id=%s",
+                channel.id,
+                video_id,
+            )
             return
         try:
             logger.info(

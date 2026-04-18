@@ -359,10 +359,22 @@ select optgroup {
 }
 
 .error-box {
+  display: grid;
+  gap: 0.35rem;
   padding: 0.9rem 1rem;
   border-radius: 18px;
   background: rgba(255, 109, 109, 0.12);
   color: #ffd2d2;
+}
+
+.error-box span {
+  color: #ff9f9f;
+  font-size: 0.88rem;
+}
+
+.error-box strong {
+  font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .empty {

@@ -398,7 +398,10 @@ export function App() {
                 </div>
               </div>
               {selectedChannel.last_error ? (
-                <div className="error-box">{selectedChannel.last_error}</div>
+                <div className="error-box">
+                  <span>最近检查失败原因</span>
+                  <strong>{selectedChannel.last_error}</strong>
+                </div>
               ) : null}
               <div className="video-table">
                 <div className="video-row header">
