@@ -186,6 +186,37 @@ select optgroup {
   gap: 1rem;
 }
 
+.detail-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.detail-section {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1rem;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.detail-section h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.detail-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.detail-section-header .actions input {
+  width: 96px;
+}
+
 .manager-label {
   margin: 0;
   text-transform: uppercase;
@@ -270,6 +301,20 @@ select optgroup {
 .channel-card h3,
 .panel h2 {
   margin: 0;
+}
+
+.panel h2 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: baseline;
+}
+
+.detail-title-name {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  font-weight: 500;
+  overflow-wrap: anywhere;
 }
 
 .channel-card p {
@@ -410,5 +455,19 @@ select optgroup {
   .detail-grid,
   .video-row {
     grid-template-columns: 1fr;
+  }
+
+  .detail-section-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .detail-section-header .actions {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .detail-section-header .actions input {
+    width: 100%;
   }
 }

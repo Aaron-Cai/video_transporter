@@ -28,11 +28,13 @@ const initialForm: ChannelFormState = {
   trigger_initial_sync: true,
 };
 
-const currentTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
 function parseUtcDate(value: string): Date {
   const normalized = /[zZ]|[+-]\d{2}:\d{2}$/.test(value) ? value : `${value}Z`;
   return new Date(normalized);
+}
+
+function padDatePart(value: number): string {
+  return value.toString().padStart(2, "0");
 }
 
 function formatDate(value: string | null): string {
@@ -43,11 +45,28 @@ function formatDate(value: string | null): string {
   if (Number.isNaN(date.getTime())) {
     return value;
   }
-  return new Intl.DateTimeFormat("zh-CN", {
-    dateStyle: "medium",
-    timeStyle: "medium",
-    timeZone: currentTimeZone,
-  }).format(date);
+
+  const offsetMinutes = -date.getTimezoneOffset();
+  const offsetSign = offsetMinutes >= 0 ? "+" : "-";
+  const absoluteOffset = Math.abs(offsetMinutes);
+  const offsetHours = Math.floor(absoluteOffset / 60);
+  const offsetRemainderMinutes = absoluteOffset % 60;
+
+  return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(
+    date.getDate(),
+  )} ${padDatePart(date.getHours())}:${padDatePart(
+    date.getMinutes(),
+  )}:${padDatePart(date.getSeconds())}${offsetSign}${padDatePart(
+    offsetHours,
+  )}${padDatePart(offsetRemainderMinutes)}`;
+}
+
+function countVideosByStatus(
+  channel: Channel,
+  statuses: Array<Channel["videos"][number]["status"]>,
+): number {
+  return channel.videos.filter((video) => statuses.includes(video.status))
+    .length;
 }
 
 function formatCountdown(
@@ -236,6 +255,16 @@ export function App() {
       ? selectedChannel.videos
       : selectedChannel.videos.filter((video) => video.status === statusFilter);
 
+  const pendingVideoCount = selectedChannel
+    ? countVideosByStatus(selectedChannel, ["pending", "downloading"])
+    : 0;
+  const failedVideoCount = selectedChannel
+    ? countVideosByStatus(selectedChannel, ["failed"])
+    : 0;
+  const completedVideoCount = selectedChannel
+    ? countVideosByStatus(selectedChannel, ["completed"])
+    : 0;
+
   return (
     <div className="app-shell">
       <section className="hero">
@@ -266,7 +295,6 @@ export function App() {
               )}{" "}
               个已下载视频
             </span>
-            <span>显示时区 {currentTimeZone}</span>
           </div>
         </div>
       </section>
@@ -320,30 +348,16 @@ export function App() {
 
         <section className="panel detail-panel">
           <div className="panel-header">
-            <h2>频道详情</h2>
+            <h2>
+              频道详情
+              {selectedChannel ? (
+                <span className="detail-title-name">{selectedChannel.name}</span>
+              ) : null}
+            </h2>
             {selectedChannel ? (
               <div className="actions">
                 <button onClick={() => handleEdit(selectedChannel)}>
                   编辑
-                </button>
-                <button onClick={() => void handleSync(selectedChannel.id)}>
-                  立即同步
-                </button>
-                <input
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={retryLimit}
-                  onChange={(event) =>
-                    setRetryLimit(Number(event.target.value))
-                  }
-                  title="重试最近失败任务数"
-                  style={{ width: "96px" }}
-                />
-                <button
-                  onClick={() => void handleRetryFailed(selectedChannel.id)}
-                >
-                  重试失败下载
                 </button>
                 <button
                   className="danger"
@@ -356,117 +370,147 @@ export function App() {
           </div>
           {selectedChannel ? (
             <>
-              <div className="toolbar">
-                <label className="checkbox compact">
-                  <input
-                    type="checkbox"
-                    checked={autoRefresh}
-                    onChange={(event) => setAutoRefresh(event.target.checked)}
-                  />
-                  <span>自动刷新</span>
-                </label>
-                <label className="inline-field">
-                  <span>间隔</span>
-                  <select
-                    value={refreshSeconds}
-                    onChange={(event) =>
-                      setRefreshSeconds(Number(event.target.value))
-                    }
-                  >
-                    <option value={5}>5 秒</option>
-                    <option value={10}>10 秒</option>
-                    <option value={15}>15 秒</option>
-                    <option value={30}>30 秒</option>
-                  </select>
-                </label>
-                <label className="inline-field">
-                  <span>状态筛选</span>
-                  <select
-                    value={statusFilter}
-                    onChange={(event) =>
-                      setStatusFilter(
-                        event.target.value as
-                          | "all"
-                          | "pending"
-                          | "downloading"
-                          | "completed"
-                          | "failed"
-                          | "skipped",
-                      )
-                    }
-                  >
-                    <option value="all">全部</option>
-                    <option value="pending">待处理</option>
-                    <option value="downloading">下载中</option>
-                    <option value="completed">已完成</option>
-                    <option value="failed">失败</option>
-                    <option value="skipped">跳过</option>
-                  </select>
-                </label>
-              </div>
-              <div className="detail-grid">
-                <div>
-                  <span>频道</span>
-                  <strong>{selectedChannel.name}</strong>
-                </div>
-                <div>
-                  <span>状态</span>
-                  <strong>
-                    {selectedChannel.status === "active" ? "启用" : "暂停"}
-                  </strong>
-                </div>
-                <div>
-                  <span>下载并发</span>
-                  <strong>{selectedChannel.download_concurrency}</strong>
-                </div>
-                <div>
-                  <span>目标分辨率</span>
-                  <strong>{selectedChannel.preferred_resolution}p</strong>
-                </div>
-                <div>
-                  <span>HDR 偏好</span>
-                  <strong>{selectedChannel.prefer_hdr ? "优先 HDR" : "仅 SDR"}</strong>
-                </div>
-                <div>
-                  <span>最近检查</span>
-                  <strong>{formatDate(selectedChannel.last_checked_at)}</strong>
-                </div>
-                <div>
-                  <span>最近同步</span>
-                  <strong>{formatDate(selectedChannel.last_sync_at)}</strong>
-                </div>
-                <div>
-                  <span>下次检查</span>
-                  <strong title={formatDate(selectedChannel.next_check_at)}>
-                    {formatCountdown(
-                      selectedChannel.next_check_at,
-                      selectedChannel.status,
-                      now,
-                    )}
-                  </strong>
-                </div>
-                <div>
-                  <span>失败数量</span>
-                  <strong>
-                    {
-                      selectedChannel.videos.filter(
-                        (video) => video.status === "failed",
-                      ).length
-                    }
-                  </strong>
-                </div>
-                <div>
-                  <span>待处理数量</span>
-                  <strong>
-                    {
-                      selectedChannel.videos.filter(
-                        (video) =>
-                          video.status === "pending" ||
-                          video.status === "downloading",
-                      ).length
-                    }
-                  </strong>
-                </div>
+              <div className="detail-sections">
+                <section className="detail-section">
+                  <h3>页面控制</h3>
+                  <div className="toolbar">
+                    <label className="checkbox compact">
+                      <input
+                        type="checkbox"
+                        checked={autoRefresh}
+                        onChange={(event) =>
+                          setAutoRefresh(event.target.checked)
+                        }
+                      />
+                      <span>页面自动刷新</span>
+                    </label>
+                    <label className="inline-field">
+                      <span>间隔</span>
+                      <select
+                        value={refreshSeconds}
+                        onChange={(event) =>
+                          setRefreshSeconds(Number(event.target.value))
+                        }
+                      >
+                        <option value={5}>5 秒</option>
+                        <option value={10}>10 秒</option>
+                        <option value={15}>15 秒</option>
+                        <option value={30}>30 秒</option>
+                      </select>
+                    </label>
+                    <label className="inline-field">
+                      <span>状态筛选</span>
+                      <select
+                        value={statusFilter}
+                        onChange={(event) =>
+                          setStatusFilter(
+                            event.target.value as
+                              | "all"
+                              | "pending"
+                              | "downloading"
+                              | "completed"
+                              | "failed"
+                              | "skipped",
+                          )
+                        }
+                      >
+                        <option value="all">全部</option>
+                        <option value="pending">待处理</option>
+                        <option value="downloading">下载中</option>
+                        <option value="completed">已完成</option>
+                        <option value="failed">失败</option>
+                        <option value="skipped">跳过</option>
+                      </select>
+                    </label>
+                  </div>
+                </section>
+
+                <section className="detail-section">
+                  <h3>画质偏好</h3>
+                  <div className="detail-grid">
+                    <div>
+                      <span>目标分辨率</span>
+                      <strong>{selectedChannel.preferred_resolution}p</strong>
+                    </div>
+                    <div>
+                      <span>HDR 偏好</span>
+                      <strong>
+                        {selectedChannel.prefer_hdr ? "优先 HDR" : "仅 SDR"}
+                      </strong>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="detail-section">
+                  <div className="detail-section-header">
+                    <h3>频道状态</h3>
+                    <button onClick={() => void handleSync(selectedChannel.id)}>
+                      立即同步
+                    </button>
+                  </div>
+                  <div className="detail-grid">
+                    <div>
+                      <span>状态</span>
+                      <strong>
+                        {selectedChannel.status === "active" ? "启用" : "暂停"}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>最近检查</span>
+                      <strong>{formatDate(selectedChannel.last_checked_at)}</strong>
+                    </div>
+                    <div>
+                      <span>最近同步</span>
+                      <strong>{formatDate(selectedChannel.last_sync_at)}</strong>
+                    </div>
+                    <div>
+                      <span>下次检查</span>
+                      <strong>{formatDate(selectedChannel.next_check_at)}</strong>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="detail-section">
+                  <div className="detail-section-header">
+                    <h3>下载情况</h3>
+                    <div className="actions">
+                      <input
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={retryLimit}
+                        onChange={(event) =>
+                          setRetryLimit(Number(event.target.value))
+                        }
+                        title="重试最近失败任务数"
+                        aria-label="重试最近失败任务数"
+                      />
+                      <button
+                        onClick={() => void handleRetryFailed(selectedChannel.id)}
+                      >
+                        重试失败下载
+                      </button>
+                    </div>
+                  </div>
+                  <div className="detail-grid">
+                    <div>
+                      <span>下载并发</span>
+                      <strong>{selectedChannel.download_concurrency}</strong>
+                    </div>
+                    <div>
+                      <span>待处理数量</span>
+                      <strong>{pendingVideoCount}</strong>
+                    </div>
+                    <div>
+                      <span>失败数量</span>
+                      <strong>{failedVideoCount}</strong>
+                    </div>
+                    <div>
+                      <span>已下载数量</span>
+                      <strong>{completedVideoCount}</strong>
+                    </div>
+                  </div>
+                </section>
               </div>
               {selectedChannel.last_error ? (
                 <div className="error-box">
