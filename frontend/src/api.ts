@@ -38,6 +38,30 @@ export async function syncChannel(channelId: number): Promise<void> {
   await http.post(`/channels/${channelId}/sync`);
 }
 
+export async function downloadPendingVideos(
+  channelId: number,
+  limit: number,
+): Promise<{ detail: string; queued_count: number; limit: number }> {
+  const response = await http.post<{
+    detail: string;
+    queued_count: number;
+    limit: number;
+  }>(`/channels/${channelId}/download-pending?limit=${limit}`);
+  return response.data;
+}
+
+export async function downloadDeferredVideos(
+  channelId: number,
+  limit: number,
+): Promise<{ detail: string; queued_count: number; limit: number }> {
+  const response = await http.post<{
+    detail: string;
+    queued_count: number;
+    limit: number;
+  }>(`/channels/${channelId}/download-deferred?limit=${limit}`);
+  return response.data;
+}
+
 export async function retryFailedDownloads(
   channelId: number,
   limit: number,

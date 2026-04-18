@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from ..models import Channel, ChannelStatus, DownloadStatus, Video
@@ -36,6 +36,7 @@ class ChannelService:
                 poll_minutes=channel.poll_minutes,
                 auto_download=channel.auto_download,
                 download_concurrency=channel.download_concurrency,
+                initial_download_limit=channel.initial_download_limit,
                 preferred_resolution=channel.preferred_resolution,
                 prefer_hdr=channel.prefer_hdr,
                 status=channel.status,
@@ -58,6 +59,11 @@ class ChannelService:
     def get_video(self, video_id: int) -> Video | None:
         return self.db.scalar(select(Video).where(Video.id == video_id))
 
+    def list_completed_videos(self) -> list[Video]:
+        return list(
+            self.db.scalars(select(Video).where(Video.status == DownloadStatus.COMPLETED)).all()
+        )
+
     def list_failed_videos(self, channel_id: int, *, limit: int | None = None) -> list[Video]:
         query = (
             select(Video)
@@ -73,6 +79,32 @@ class ChannelService:
             self.db.scalars(query).all()
         )
 
+    def list_pending_videos(self, channel_id: int, *, limit: int | None = None) -> list[Video]:
+        query = (
+            select(Video)
+            .where(
+                Video.channel_id == channel_id,
+                Video.status == DownloadStatus.PENDING,
+            )
+            .order_by(Video.created_at.desc(), Video.id.desc())
+        )
+        if limit is not None:
+            query = query.limit(limit)
+        return list(self.db.scalars(query).all())
+
+    def list_deferred_videos(self, channel_id: int, *, limit: int | None = None) -> list[Video]:
+        query = (
+            select(Video)
+            .where(
+                Video.channel_id == channel_id,
+                Video.status == DownloadStatus.DEFERRED,
+            )
+            .order_by(Video.created_at.desc(), Video.id.desc())
+        )
+        if limit is not None:
+            query = query.limit(limit)
+        return list(self.db.scalars(query).all())
+
     def create_channel(self, payload: ChannelCreate) -> Channel:
         if self.db.scalar(select(Channel).where(Channel.url == payload.url)) is not None:
             raise ValueError("Channel URL already exists")
@@ -83,6 +115,7 @@ class ChannelService:
             poll_minutes=payload.poll_minutes,
             auto_download=payload.auto_download,
             download_concurrency=payload.download_concurrency,
+            initial_download_limit=payload.initial_download_limit,
             preferred_resolution=payload.preferred_resolution,
             prefer_hdr=payload.prefer_hdr,
             status=payload.status,
@@ -118,6 +151,7 @@ class ChannelService:
         youtube_video_id: str,
         title: str | None,
         webpage_url: str,
+        initial_status: DownloadStatus = DownloadStatus.PENDING,
     ) -> tuple[Video, bool]:
         video = self.db.scalar(select(Video).where(Video.youtube_video_id == youtube_video_id))
         created = False
@@ -127,6 +161,7 @@ class ChannelService:
                 youtube_video_id=youtube_video_id,
                 title=title,
                 webpage_url=webpage_url,
+                status=initial_status,
             )
             self.db.add(video)
             created = True
@@ -176,5 +211,30 @@ class ChannelService:
         self.db.refresh(video)
         return video
 
+    def update_video_download_path(self, video: Video, download_path: str) -> Video:
+        video.download_path = download_path
+        video.error_message = None
+        self.db.add(video)
+        self.db.commit()
+        self.db.refresh(video)
+        return video
+
+    def mark_interrupted_downloads_failed(self) -> int:
+        result = self.db.execute(
+            update(Video)
+            .where(Video.status == DownloadStatus.DOWNLOADING)
+            .values(
+                status=DownloadStatus.FAILED,
+                download_path=None,
+                downloaded_at=None,
+                error_message="Download was interrupted before the backend shut down or restarted.",
+                updated_at=datetime.utcnow(),
+            )
+        )
+        self.db.commit()
+        return result.rowcount or 0
+
     def list_active_channels(self) -> list[Channel]:
-        return list(self.db.scalars(select(Channel).where(Channel.status == ChannelStatus.ACTIVE)).all())
+        return list(
+            self.db.scalars(select(Channel).where(Channel.status == ChannelStatus.ACTIVE)).all()
+        )

@@ -15,7 +15,6 @@ from .scheduler import ChannelScheduler
 from .services.sync_service import SyncManager
 from .services.youtube_dl import YoutubeDlClient
 
-
 configure_logging()
 
 youtube_dl = YoutubeDlClient(settings.yt_dlp_path, settings.youtube_dl_path, settings.download_dir)
@@ -30,6 +29,8 @@ async def lifespan(_: FastAPI):
     settings.logs_dir.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
     ensure_schema()
+    sync_manager.recover_interrupted_downloads()
+    sync_manager.repair_completed_download_paths()
     scheduler.start()
     try:
         yield

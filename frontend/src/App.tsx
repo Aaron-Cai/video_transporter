@@ -2,6 +2,8 @@ import { FormEvent, useEffect, useState } from "react";
 import {
   createChannel,
   deleteChannel,
+  downloadDeferredVideos,
+  downloadPendingVideos,
   fetchChannel,
   fetchChannels,
   retryFailedDownloads,
@@ -22,6 +24,7 @@ const initialForm: ChannelFormState = {
   poll_minutes: 30,
   auto_download: true,
   download_concurrency: 1,
+  initial_download_limit: 100,
   preferred_resolution: 1080,
   prefer_hdr: false,
   status: "active",
@@ -113,6 +116,18 @@ function toDownloadHref(videoId: number): string {
   return `/api/channels/videos/${videoId}/play`;
 }
 
+function formatVideoStatus(status: Channel["videos"][number]["status"]): string {
+  const labels: Record<Channel["videos"][number]["status"], string> = {
+    pending: "待处理",
+    downloading: "下载中",
+    completed: "已完成",
+    failed: "失败",
+    skipped: "跳过",
+    deferred: "暂不下载",
+  };
+  return labels[status];
+}
+
 export function App() {
   const [channels, setChannels] = useState<ChannelListItem[]>([]);
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
@@ -121,12 +136,20 @@ export function App() {
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
+  const [deferredLimit, setDeferredLimit] = useState(20);
+  const [pendingLimit, setPendingLimit] = useState(20);
   const [retryLimit, setRetryLimit] = useState(20);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [refreshSeconds, setRefreshSeconds] = useState(10);
   const [now, setNow] = useState(() => new Date());
   const [statusFilter, setStatusFilter] = useState<
-    "all" | "pending" | "downloading" | "completed" | "failed" | "skipped"
+    | "all"
+    | "pending"
+    | "downloading"
+    | "completed"
+    | "failed"
+    | "skipped"
+    | "deferred"
   >("all");
 
   async function loadChannels(selectedId?: number) {
@@ -191,6 +214,7 @@ export function App() {
       poll_minutes: channel.poll_minutes,
       auto_download: channel.auto_download,
       download_concurrency: channel.download_concurrency,
+      initial_download_limit: channel.initial_download_limit,
       preferred_resolution: channel.preferred_resolution,
       prefer_hdr: channel.prefer_hdr,
       status: channel.status,
@@ -249,6 +273,18 @@ export function App() {
     await loadChannels(channelId);
   }
 
+  async function handleDownloadPending(channelId: number) {
+    const result = await downloadPendingVideos(channelId, pendingLimit);
+    setMessage(`已加入最新待处理的 ${result.queued_count} 个下载任务`);
+    await loadChannels(channelId);
+  }
+
+  async function handleDownloadDeferred(channelId: number) {
+    const result = await downloadDeferredVideos(channelId, deferredLimit);
+    setMessage(`已加入最新暂不下载的 ${result.queued_count} 个下载任务`);
+    await loadChannels(channelId);
+  }
+
   const filteredVideos = !selectedChannel
     ? []
     : statusFilter === "all"
@@ -256,7 +292,13 @@ export function App() {
       : selectedChannel.videos.filter((video) => video.status === statusFilter);
 
   const pendingVideoCount = selectedChannel
-    ? countVideosByStatus(selectedChannel, ["pending", "downloading"])
+    ? countVideosByStatus(selectedChannel, ["pending"])
+    : 0;
+  const activeDownloadCount = selectedChannel
+    ? countVideosByStatus(selectedChannel, ["downloading"])
+    : 0;
+  const deferredVideoCount = selectedChannel
+    ? countVideosByStatus(selectedChannel, ["deferred"])
     : 0;
   const failedVideoCount = selectedChannel
     ? countVideosByStatus(selectedChannel, ["failed"])
@@ -410,7 +452,8 @@ export function App() {
                               | "downloading"
                               | "completed"
                               | "failed"
-                              | "skipped",
+                              | "skipped"
+                              | "deferred",
                           )
                         }
                       >
@@ -420,13 +463,14 @@ export function App() {
                         <option value="completed">已完成</option>
                         <option value="failed">失败</option>
                         <option value="skipped">跳过</option>
+                        <option value="deferred">暂不下载</option>
                       </select>
                     </label>
                   </div>
                 </section>
 
                 <section className="detail-section">
-                  <h3>画质偏好</h3>
+                  <h3>下载偏好</h3>
                   <div className="detail-grid">
                     <div>
                       <span>目标分辨率</span>
@@ -437,6 +481,10 @@ export function App() {
                       <strong>
                         {selectedChannel.prefer_hdr ? "优先 HDR" : "仅 SDR"}
                       </strong>
+                    </div>
+                    <div>
+                      <span>初次下载最近</span>
+                      <strong>{selectedChannel.initial_download_limit} 个</strong>
                     </div>
                   </div>
                 </section>
@@ -478,6 +526,42 @@ export function App() {
                         type="number"
                         min={1}
                         max={100}
+                        value={pendingLimit}
+                        onChange={(event) =>
+                          setPendingLimit(Number(event.target.value))
+                        }
+                        title="下载最新待处理任务数"
+                        aria-label="下载最新待处理任务数"
+                      />
+                      <button
+                        onClick={() =>
+                          void handleDownloadPending(selectedChannel.id)
+                        }
+                      >
+                        下载待处理
+                      </button>
+                      <input
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={deferredLimit}
+                        onChange={(event) =>
+                          setDeferredLimit(Number(event.target.value))
+                        }
+                        title="下载最新暂不下载的视频数"
+                        aria-label="下载最新暂不下载的视频数"
+                      />
+                      <button
+                        onClick={() =>
+                          void handleDownloadDeferred(selectedChannel.id)
+                        }
+                      >
+                        下载历史视频
+                      </button>
+                      <input
+                        type="number"
+                        min={1}
+                        max={100}
                         value={retryLimit}
                         onChange={(event) =>
                           setRetryLimit(Number(event.target.value))
@@ -500,6 +584,14 @@ export function App() {
                     <div>
                       <span>待处理数量</span>
                       <strong>{pendingVideoCount}</strong>
+                    </div>
+                    <div>
+                      <span>下载中数量</span>
+                      <strong>{activeDownloadCount}</strong>
+                    </div>
+                    <div>
+                      <span>暂不下载数量</span>
+                      <strong>{deferredVideoCount}</strong>
                     </div>
                     <div>
                       <span>失败数量</span>
@@ -527,7 +619,7 @@ export function App() {
                 {filteredVideos.map((video) => (
                   <div className="video-row" key={video.id}>
                     <span>{video.title ?? video.youtube_video_id}</span>
-                    <span>{video.status}</span>
+                    <span>{formatVideoStatus(video.status)}</span>
                     <span>
                       {video.download_path ? (
                         <a
@@ -649,6 +741,21 @@ export function App() {
                   </select>
                 </label>
               </div>
+              <label>
+                <span>初次下载最近视频数</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={5000}
+                  value={form.initial_download_limit}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      initial_download_limit: Number(event.target.value),
+                    })
+                  }
+                />
+              </label>
               <div className="grid-two">
                 <label>
                   <span>状态</span>
@@ -717,7 +824,7 @@ export function App() {
                       })
                     }
                   />
-                  <span>创建后立即下载频道全部存量视频</span>
+                  <span>创建后立即同步频道视频</span>
                 </label>
               ) : null}
               <div className="modal-actions">

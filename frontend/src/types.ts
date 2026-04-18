@@ -4,7 +4,8 @@ export type VideoStatus =
   | "downloading"
   | "completed"
   | "failed"
-  | "skipped";
+  | "skipped"
+  | "deferred";
 
 export interface Video {
   id: number;
@@ -27,6 +28,7 @@ export interface ChannelListItem {
   poll_minutes: number;
   auto_download: boolean;
   download_concurrency: number;
+  initial_download_limit: number;
   preferred_resolution: number;
   prefer_hdr: boolean;
   status: ChannelStatus;
@@ -54,6 +56,7 @@ export interface ChannelFormState {
   poll_minutes: number;
   auto_download: boolean;
   download_concurrency: number;
+  initial_download_limit: number;
   preferred_resolution: number;
   prefer_hdr: boolean;
   status: ChannelStatus;

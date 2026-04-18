@@ -4,6 +4,7 @@ import json
 import logging
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from threading import Lock
 
 from sqlalchemy.orm import Session
@@ -14,6 +15,12 @@ from .channel_service import ChannelService
 from .youtube_dl import YoutubeDlClient
 
 logger = logging.getLogger("video_transporter.sync")
+
+AUTO_DOWNLOADABLE_STATUSES = {
+    DownloadStatus.PENDING,
+    DownloadStatus.FAILED,
+    DownloadStatus.SKIPPED,
+}
 
 
 def classify_sync_error(exc: Exception) -> str:
@@ -109,6 +116,39 @@ class SyncManager:
         for _, executor in executors:
             executor.shutdown(wait=False, cancel_futures=False)
 
+    def recover_interrupted_downloads(self) -> int:
+        db = SessionLocal()
+        try:
+            count = ChannelService(db).mark_interrupted_downloads_failed()
+            if count:
+                logger.warning("Marked interrupted downloads as failed: count=%s", count)
+            return count
+        finally:
+            db.close()
+
+    def repair_completed_download_paths(self) -> int:
+        db = SessionLocal()
+        try:
+            service = ChannelService(db)
+            repaired_count = 0
+            for video in service.list_completed_videos():
+                if video.download_path and Path(video.download_path).is_file():
+                    continue
+                resolved_path = self.youtube_dl.resolve_download_path(
+                    video.channel.name,
+                    video.youtube_video_id,
+                    video.download_path,
+                )
+                if resolved_path is None:
+                    continue
+                service.update_video_download_path(video, str(resolved_path))
+                repaired_count += 1
+            if repaired_count:
+                logger.warning("Repaired completed download paths: count=%s", repaired_count)
+            return repaired_count
+        finally:
+            db.close()
+
     def retry_failed_downloads(self, channel_id: int, *, limit: int = 20) -> int:
         db = SessionLocal()
         try:
@@ -126,6 +166,40 @@ class SyncManager:
         finally:
             db.close()
 
+    def download_pending_videos(self, channel_id: int, *, limit: int = 20) -> int:
+        db = SessionLocal()
+        try:
+            service = ChannelService(db)
+            pending_videos = service.list_pending_videos(channel_id, limit=limit)
+            for video in pending_videos:
+                self.submit_video_download(channel_id, video.id)
+            logger.info(
+                "Queued pending downloads: channel_id=%s count=%s limit=%s",
+                channel_id,
+                len(pending_videos),
+                limit,
+            )
+            return len(pending_videos)
+        finally:
+            db.close()
+
+    def download_deferred_videos(self, channel_id: int, *, limit: int = 20) -> int:
+        db = SessionLocal()
+        try:
+            service = ChannelService(db)
+            deferred_videos = service.list_deferred_videos(channel_id, limit=limit)
+            for video in deferred_videos:
+                self.submit_video_download(channel_id, video.id)
+            logger.info(
+                "Queued deferred downloads: channel_id=%s count=%s limit=%s",
+                channel_id,
+                len(deferred_videos),
+                limit,
+            )
+            return len(deferred_videos)
+        finally:
+            db.close()
+
     def _sync_channel(self, channel_id: int) -> None:
         db = SessionLocal()
         try:
@@ -139,12 +213,20 @@ class SyncManager:
                 return
             logger.info("Starting channel sync: channel_id=%s name=%s", channel.id, channel.name)
             entries = self.youtube_dl.list_channel_videos(channel.url)
+            is_initial_sync = channel.last_sync_at is None
             new_video_count = 0
-            for entry in entries:
-                video, created = service.upsert_video(channel=channel, **entry)
+            for index, entry in enumerate(entries):
+                initial_status = DownloadStatus.PENDING
+                if is_initial_sync and index >= channel.initial_download_limit:
+                    initial_status = DownloadStatus.DEFERRED
+                video, created = service.upsert_video(
+                    channel=channel,
+                    initial_status=initial_status,
+                    **entry,
+                )
                 if created:
                     new_video_count += 1
-                if channel.auto_download and video.status != DownloadStatus.COMPLETED:
+                if channel.auto_download and video.status in AUTO_DOWNLOADABLE_STATUSES:
                     self.submit_video_download(channel.id, video.id)
             service.mark_channel_synced(channel)
             logger.info(
@@ -198,6 +280,13 @@ class SyncManager:
         if video.status == DownloadStatus.COMPLETED:
             logger.info(
                 "Video download skipped because already completed: channel_id=%s video_id=%s",
+                channel.id,
+                video_id,
+            )
+            return
+        if video.status == DownloadStatus.DOWNLOADING:
+            logger.info(
+                "Video download skipped because already downloading: channel_id=%s video_id=%s",
                 channel.id,
                 video_id,
             )

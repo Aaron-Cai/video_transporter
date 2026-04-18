@@ -3,15 +3,15 @@ from __future__ import annotations
 import json
 import logging
 import random
+import re
 import shutil
 import subprocess
 import time
 from pathlib import Path
 from typing import Any, Literal
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from ..config import BASE_DIR, settings
-
 
 logger = logging.getLogger("video_transporter.download")
 
@@ -19,7 +19,12 @@ DownloaderFlavor = Literal["yt-dlp", "youtube-dl"]
 
 
 class YoutubeDlClient:
-    def __init__(self, preferred_executable: Path, fallback_executable: Path, download_dir: Path) -> None:
+    def __init__(
+        self,
+        preferred_executable: Path,
+        fallback_executable: Path,
+        download_dir: Path,
+    ) -> None:
         self.preferred_executable = preferred_executable
         self.fallback_executable = fallback_executable
         self.download_dir = download_dir
@@ -62,7 +67,11 @@ class YoutubeDlClient:
                 errors="replace",
             )
         except subprocess.CalledProcessError as exc:
-            logger.error("Downloader failed: executable=%s returncode=%s", self.executable.name, exc.returncode)
+            logger.error(
+                "Downloader failed: executable=%s returncode=%s",
+                self.executable.name,
+                exc.returncode,
+            )
             if exc.stdout:
                 logger.error("Downloader stdout: %s", exc.stdout.strip()[:4000])
             if exc.stderr:
@@ -99,7 +108,10 @@ class YoutubeDlClient:
         output_template = str(channel_dir / "%(upload_date)s [%(id)s].%(ext)s")
         sleep_seconds = self._get_download_interval_seconds()
         if sleep_seconds > 0:
-            logger.info("Sleeping %.2f seconds before download to reduce request frequency", sleep_seconds)
+            logger.info(
+                "Sleeping %.2f seconds before download to reduce request frequency",
+                sleep_seconds,
+            )
             time.sleep(sleep_seconds)
         logger.info("Starting video download: channel=%s url=%s", channel_name, video_url)
         result = self._run(
@@ -110,12 +122,41 @@ class YoutubeDlClient:
                 prefer_hdr=prefer_hdr,
             )
         )
-        last_path = self._extract_destination_path(result.stdout)
-        if last_path:
-            logger.info("Video download completed: %s", last_path)
+        reported_path = self._extract_destination_path(result.stdout)
+        final_path = self.resolve_download_path(channel_name, video_url, reported_path)
+        if final_path:
+            logger.info("Video download completed: %s", final_path)
         else:
             logger.info("Video download skipped or no output path returned: %s", video_url)
-        return Path(last_path) if last_path else None
+        return final_path
+
+    def resolve_download_path(
+        self,
+        channel_name: str,
+        video_url_or_id: str,
+        reported_path: str | Path | None = None,
+    ) -> Path | None:
+        video_id = self._extract_video_id(video_url_or_id)
+        channel_dir = self.download_dir / self._safe_dir_name(channel_name)
+        reported = Path(reported_path) if reported_path else None
+        candidates: list[Path] = []
+
+        if channel_dir.is_dir() and video_id:
+            candidates.extend(
+                path for path in channel_dir.iterdir() if f"[{video_id}]" in path.name
+            )
+        if reported is not None:
+            candidates.append(reported)
+
+        existing_candidates = [
+            path
+            for path in candidates
+            if path.is_file() and not self._is_temporary_download_path(path)
+        ]
+        if not existing_candidates:
+            return None
+
+        return max(existing_candidates, key=self._download_path_score)
 
     def _with_common_args(self, args: list[str]) -> list[str]:
         common_args: list[str] = []
@@ -212,7 +253,12 @@ class YoutubeDlClient:
         path = parsed.path.rstrip("/")
         if not path or path.endswith("/videos"):
             return channel_url
-        if path.startswith("/@") or path.startswith("/channel/") or path.startswith("/c/") or path.startswith("/user/"):
+        if (
+            path.startswith("/@")
+            or path.startswith("/channel/")
+            or path.startswith("/c/")
+            or path.startswith("/user/")
+        ):
             return parsed._replace(path=f"{path}/videos").geturl()
         return channel_url
 
@@ -221,6 +267,36 @@ class YoutubeDlClient:
         unsafe_chars = '<>:"/\\|?*'
         safe = "".join("_" if char in unsafe_chars else char for char in value).strip()
         return safe or "channel"
+
+    @staticmethod
+    def _extract_video_id(video_url_or_id: str) -> str:
+        parsed = urlparse(video_url_or_id)
+        if parsed.query:
+            video_id = parse_qs(parsed.query).get("v", [None])[0]
+            if video_id:
+                return video_id
+        path = parsed.path.strip("/")
+        if path:
+            return path.rsplit("/", maxsplit=1)[-1]
+        return video_url_or_id
+
+    @staticmethod
+    def _is_temporary_download_path(path: Path) -> bool:
+        lowered_name = path.name.lower()
+        return any(
+            token in lowered_name
+            for token in (
+                ".part",
+                ".ytdl",
+                ".temp",
+                ".tmp",
+            )
+        )
+
+    @staticmethod
+    def _download_path_score(path: Path) -> tuple[int, float]:
+        is_final_name = 0 if re.search(r"\.f\d+$", path.stem) else 1
+        return (is_final_name, path.stat().st_mtime)
 
     def _get_download_interval_seconds(self) -> float:
         min_seconds = max(0.0, self.download_interval_min_seconds)

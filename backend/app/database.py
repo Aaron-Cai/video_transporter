@@ -5,7 +5,6 @@ from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 from .config import settings
 
-
 connect_args = {}
 if settings.database_url.startswith("sqlite"):
     connect_args["check_same_thread"] = False
@@ -24,11 +23,24 @@ def ensure_schema() -> None:
     with engine.begin() as connection:
         if "download_concurrency" not in channel_columns:
             connection.execute(
-                text("ALTER TABLE channels ADD COLUMN download_concurrency INTEGER NOT NULL DEFAULT 1")
+                text(
+                    "ALTER TABLE channels ADD COLUMN "
+                    "download_concurrency INTEGER NOT NULL DEFAULT 1"
+                )
+            )
+        if "initial_download_limit" not in channel_columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE channels ADD COLUMN "
+                    "initial_download_limit INTEGER NOT NULL DEFAULT 100"
+                )
             )
         if "preferred_resolution" not in channel_columns:
             connection.execute(
-                text("ALTER TABLE channels ADD COLUMN preferred_resolution INTEGER NOT NULL DEFAULT 1080")
+                text(
+                    "ALTER TABLE channels ADD COLUMN "
+                    "preferred_resolution INTEGER NOT NULL DEFAULT 1080"
+                )
             )
         if "prefer_hdr" not in channel_columns:
             connection.execute(

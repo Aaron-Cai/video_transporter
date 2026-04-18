@@ -14,6 +14,8 @@ from ..schemas import (
     ChannelListItem,
     ChannelRead,
     ChannelUpdate,
+    DownloadDeferredResponse,
+    DownloadPendingResponse,
     RetryFailedResponse,
     SyncResponse,
 )
@@ -255,6 +257,40 @@ def retry_failed_downloads(
     queued_count = sync_manager.retry_failed_downloads(channel_id, limit=limit)
     return RetryFailedResponse(
         detail="Failed video downloads queued",
+        queued_count=queued_count,
+        limit=limit,
+    )
+
+
+@router.post("/{channel_id}/download-pending", response_model=DownloadPendingResponse)
+def download_pending_videos(
+    channel_id: int,
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    sync_manager: SyncManager = Depends(get_sync_manager),
+) -> DownloadPendingResponse:
+    service = ChannelService(db)
+    _get_channel_or_404(service, channel_id)
+    queued_count = sync_manager.download_pending_videos(channel_id, limit=limit)
+    return DownloadPendingResponse(
+        detail="Pending video downloads queued",
+        queued_count=queued_count,
+        limit=limit,
+    )
+
+
+@router.post("/{channel_id}/download-deferred", response_model=DownloadDeferredResponse)
+def download_deferred_videos(
+    channel_id: int,
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    sync_manager: SyncManager = Depends(get_sync_manager),
+) -> DownloadDeferredResponse:
+    service = ChannelService(db)
+    _get_channel_or_404(service, channel_id)
+    queued_count = sync_manager.download_deferred_videos(channel_id, limit=limit)
+    return DownloadDeferredResponse(
+        detail="Deferred video downloads queued",
         queued_count=queued_count,
         limit=limit,
     )

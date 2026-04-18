@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import Boolean, DateTime, Enum as SqlEnum, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Enum as SqlEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -20,6 +21,7 @@ class DownloadStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     SKIPPED = "skipped"
+    DEFERRED = "deferred"
 
 
 class TimestampMixin:
@@ -42,6 +44,7 @@ class Channel(TimestampMixin, Base):
     poll_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
     auto_download: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     download_concurrency: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    initial_download_limit: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     preferred_resolution: Mapped[int] = mapped_column(Integer, default=1080, nullable=False)
     prefer_hdr: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -62,7 +65,9 @@ class Video(TimestampMixin, Base):
     channel_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    youtube_video_id: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, index=True)
+    youtube_video_id: Mapped[str] = mapped_column(
+        String(32), nullable=False, unique=True, index=True
+    )
     title: Mapped[str | None] = mapped_column(String(500), nullable=True)
     webpage_url: Mapped[str] = mapped_column(String(500), nullable=False)
     status: Mapped[DownloadStatus] = mapped_column(

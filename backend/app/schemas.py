@@ -27,6 +27,7 @@ class ChannelBase(ApiModel):
     poll_minutes: int = Field(default=30, ge=5, le=1440)
     auto_download: bool = True
     download_concurrency: int = Field(default=1, ge=1, le=5)
+    initial_download_limit: int = Field(default=100, ge=1, le=5000)
     preferred_resolution: int = Field(default=1080, ge=144, le=4320)
     prefer_hdr: bool = False
     status: ChannelStatus = ChannelStatus.ACTIVE
@@ -43,6 +44,7 @@ class ChannelUpdate(ApiModel):
     poll_minutes: int | None = Field(default=None, ge=5, le=1440)
     auto_download: bool | None = None
     download_concurrency: int | None = Field(default=None, ge=1, le=5)
+    initial_download_limit: int | None = Field(default=None, ge=1, le=5000)
     preferred_resolution: int | None = Field(default=None, ge=144, le=4320)
     prefer_hdr: bool | None = None
     status: ChannelStatus | None = None
@@ -68,6 +70,7 @@ class ChannelRead(ApiModel):
     poll_minutes: int
     auto_download: bool
     download_concurrency: int
+    initial_download_limit: int
     preferred_resolution: int
     prefer_hdr: bool
     status: ChannelStatus
@@ -88,6 +91,7 @@ class ChannelListItem(ApiModel):
     poll_minutes: int
     auto_download: bool
     download_concurrency: int
+    initial_download_limit: int
     preferred_resolution: int
     prefer_hdr: bool
     status: ChannelStatus
@@ -106,6 +110,18 @@ class SyncResponse(ApiModel):
 
 
 class RetryFailedResponse(ApiModel):
+    detail: str
+    queued_count: int
+    limit: int
+
+
+class DownloadPendingResponse(ApiModel):
+    detail: str
+    queued_count: int
+    limit: int
+
+
+class DownloadDeferredResponse(ApiModel):
     detail: str
     queued_count: int
     limit: int

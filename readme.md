@@ -117,7 +117,7 @@ flowchart TD
     F -->|Yes| G["Update last_checked_at\nUpdate last_sync_at\nClear last_error"]
 
     G --> H{"auto_download enabled?"}
-    H -->|Yes| I["Queue unfinished videos for download"]
+    H -->|Yes| I["Queue downloadable videos for download"]
     H -->|No| J["Do not queue downloads"]
 
     I --> K["Download tasks run separately"]
@@ -125,6 +125,56 @@ flowchart TD
 ```
 
 In short, `last_checked_at` answers "when did the system last try?", while `last_sync_at` answers "when did the channel list last refresh successfully?". Video downloads are separate tasks and do not update either channel timestamp.
+
+## Video Download State Model
+
+Video download states describe each discovered video's download lifecycle:
+
+- `pending`: The video is eligible for downloading but has not started yet.
+- `deferred`: The video was discovered during the initial backfill but is outside the channel's `initial_download_limit`. It is shown as "Do not download for now" in the UI and can still be downloaded manually.
+- `downloading`: A download worker has started this video.
+- `completed`: The video downloaded successfully and has a local `download_path`.
+- `failed`: The download failed, or the backend restarted while the video was still marked as `downloading`.
+- `skipped`: The downloader finished without returning a local output path.
+
+There is also an implicit in-memory `queued` state: the video has been submitted to the worker pool, but the database still shows its previous state until a worker starts.
+
+`initial_download_limit` defaults to `100`. During a channel's first successful sync, the newest `initial_download_limit` videos are created as `pending`; older backfill videos are created as `deferred`. Later syncs treat newly published videos as `pending`, so new videos can still be downloaded automatically.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Pending: Initial sync, within latest initial_download_limit
+    [*] --> Deferred: Initial sync, older than initial_download_limit
+    [*] --> Pending: Later sync discovers a new video
+
+    Pending --> Queued: auto_download is enabled
+    Pending --> Queued: Click "Download pending"
+
+    Deferred --> Queued: Click "Download history"
+
+    Failed --> Queued: Click "Retry failed"
+    Failed --> Queued: auto_download is enabled on sync
+
+    Skipped --> Queued: auto_download is enabled on sync
+
+    Queued --> Downloading: Worker starts
+
+    Downloading --> Completed: Downloader returns a local output path
+    Downloading --> Skipped: Downloader returns no output path
+    Downloading --> Failed: Downloader raises an error
+    Downloading --> Failed: Backend startup recovers interrupted downloads
+
+    Completed --> Completed: Sync does not queue completed videos
+    Deferred --> Deferred: Sync does not queue deferred videos automatically
+    Downloading --> Downloading: Sync and duplicate worker tasks skip active downloads
+```
+
+Manual download actions do not require the channel to be `active`:
+
+- "Download pending" queues the newest `pending` videos.
+- "Download history" queues the newest `deferred` videos.
+- "Retry failed" queues the most recently failed videos.
+- "Sync now" refreshes the channel list and only queues downloadable states when `auto_download` is enabled.
 
 ## Download Notes
 
