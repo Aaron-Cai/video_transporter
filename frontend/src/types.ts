@@ -32,6 +32,7 @@ export interface ChannelListItem {
   status: ChannelStatus;
   last_checked_at: string | null;
   last_sync_at: string | null;
+  next_check_at: string | null;
   last_error: string | null;
   created_at: string;
   updated_at: string;

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -8,7 +9,6 @@ from apscheduler.triggers.interval import IntervalTrigger
 from .database import SessionLocal
 from .services.channel_service import ChannelService
 from .services.sync_service import SyncManager
-
 
 logger = logging.getLogger("video_transporter.scheduler")
 
@@ -26,6 +26,10 @@ class ChannelScheduler:
     def shutdown(self) -> None:
         self.scheduler.shutdown(wait=False)
         logger.info("Scheduler stopped")
+
+    def get_next_check_at(self, channel_id: int) -> datetime | None:
+        job = self.scheduler.get_job(f"channel-sync-{channel_id}")
+        return job.next_run_time if job is not None else None
 
     def reload_jobs(self) -> None:
         self.scheduler.remove_all_jobs()

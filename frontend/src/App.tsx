@@ -8,7 +8,12 @@ import {
   syncChannel,
   updateChannel,
 } from "./api";
-import type { Channel, ChannelFormState, ChannelListItem } from "./types";
+import type {
+  Channel,
+  ChannelFormState,
+  ChannelListItem,
+  ChannelStatus,
+} from "./types";
 
 const initialForm: ChannelFormState = {
   name: "",
@@ -45,6 +50,46 @@ function formatDate(value: string | null): string {
   }).format(date);
 }
 
+function formatCountdown(
+  value: string | null,
+  status: ChannelStatus,
+  now: Date,
+): string {
+  if (status === "paused") {
+    return "已暂停";
+  }
+  if (!value) {
+    return "-";
+  }
+  const date = parseUtcDate(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  const totalSeconds = Math.max(
+    0,
+    Math.floor((date.getTime() - now.getTime()) / 1000),
+  );
+  if (totalSeconds === 0) {
+    return "即将检查";
+  }
+
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (days > 0) {
+    return `${days} 天 ${hours} 小时`;
+  }
+  if (hours > 0) {
+    return `${hours} 小时 ${minutes} 分`;
+  }
+  if (minutes > 0) {
+    return `${minutes} 分 ${seconds} 秒`;
+  }
+  return `${seconds} 秒`;
+}
+
 function toDownloadHref(videoId: number): string {
   return `/api/channels/videos/${videoId}/play`;
 }
@@ -60,6 +105,7 @@ export function App() {
   const [retryLimit, setRetryLimit] = useState(20);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [refreshSeconds, setRefreshSeconds] = useState(10);
+  const [now, setNow] = useState(() => new Date());
   const [statusFilter, setStatusFilter] = useState<
     "all" | "pending" | "downloading" | "completed" | "failed" | "skipped"
   >("all");
@@ -78,6 +124,13 @@ export function App() {
 
   useEffect(() => {
     void loadChannels();
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNow(new Date());
+    }, 1000);
+    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -245,6 +298,14 @@ export function App() {
                 <div className="channel-card-meta">
                   <span>{channel.status === "active" ? "启用" : "暂停"}</span>
                   <span>
+                    下次{" "}
+                    {formatCountdown(
+                      channel.next_check_at,
+                      channel.status,
+                      now,
+                    )}
+                  </span>
+                  <span>
                     {channel.completed_video_count}/{channel.video_count} 已下载
                   </span>
                 </div>
@@ -373,6 +434,16 @@ export function App() {
                 <div>
                   <span>最近同步</span>
                   <strong>{formatDate(selectedChannel.last_sync_at)}</strong>
+                </div>
+                <div>
+                  <span>下次检查</span>
+                  <strong title={formatDate(selectedChannel.next_check_at)}>
+                    {formatCountdown(
+                      selectedChannel.next_check_at,
+                      selectedChannel.status,
+                      now,
+                    )}
+                  </strong>
                 </div>
                 <div>
                   <span>失败数量</span>

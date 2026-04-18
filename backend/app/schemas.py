@@ -73,6 +73,7 @@ class ChannelRead(ApiModel):
     status: ChannelStatus
     last_checked_at: datetime | None
     last_sync_at: datetime | None
+    next_check_at: datetime | None = None
     last_error: str | None
     created_at: datetime
     updated_at: datetime
@@ -92,6 +93,7 @@ class ChannelListItem(ApiModel):
     status: ChannelStatus
     last_checked_at: datetime | None
     last_sync_at: datetime | None
+    next_check_at: datetime | None = None
     last_error: str | None
     created_at: datetime
     updated_at: datetime

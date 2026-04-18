@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..scheduler import ChannelScheduler
 from ..schemas import (
     ChannelCreate,
     ChannelListItem,
@@ -16,10 +17,8 @@ from ..schemas import (
     RetryFailedResponse,
     SyncResponse,
 )
-from ..scheduler import ChannelScheduler
 from ..services.channel_service import ChannelService
 from ..services.sync_service import SyncManager
-
 
 router = APIRouter(prefix="/channels", tags=["channels"])
 
@@ -55,15 +54,32 @@ def _get_video_file_or_404(video: Any) -> Path:
     return file_path
 
 
+def _channel_read_with_schedule(channel: Any, scheduler: ChannelScheduler) -> ChannelRead:
+    item = ChannelRead.model_validate(channel)
+    item.next_check_at = scheduler.get_next_check_at(channel.id)
+    return item
+
+
 @router.get("", response_model=list[ChannelListItem])
-def list_channels(db: Session = Depends(get_db)) -> list[ChannelListItem]:
-    return ChannelService(db).list_channels()
+def list_channels(
+    db: Session = Depends(get_db),
+    scheduler: ChannelScheduler = Depends(get_scheduler),
+) -> list[ChannelListItem]:
+    channels = ChannelService(db).list_channels()
+    for channel in channels:
+        channel.next_check_at = scheduler.get_next_check_at(channel.id)
+    return channels
 
 
 @router.get("/{channel_id}", response_model=ChannelRead)
-def get_channel(channel_id: int, db: Session = Depends(get_db)) -> ChannelRead:
+def get_channel(
+    channel_id: int,
+    db: Session = Depends(get_db),
+    scheduler: ChannelScheduler = Depends(get_scheduler),
+) -> ChannelRead:
     service = ChannelService(db)
-    return _get_channel_or_404(service, channel_id)
+    channel = _get_channel_or_404(service, channel_id)
+    return _channel_read_with_schedule(channel, scheduler)
 
 
 @router.get("/videos/{video_id}/stream")
@@ -182,7 +198,7 @@ def create_channel(
     scheduler.reload_jobs()
     if payload.trigger_initial_sync:
         sync_manager.submit_sync(channel.id)
-    return channel
+    return _channel_read_with_schedule(channel, scheduler)
 
 
 @router.put("/{channel_id}", response_model=ChannelRead)
@@ -199,7 +215,7 @@ def update_channel(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     scheduler.reload_jobs()
-    return updated
+    return _channel_read_with_schedule(updated, scheduler)
 
 
 @router.delete("/{channel_id}", status_code=status.HTTP_204_NO_CONTENT)
