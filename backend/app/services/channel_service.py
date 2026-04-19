@@ -5,8 +5,13 @@ from datetime import datetime
 from sqlalchemy import case, func, select, update
 from sqlalchemy.orm import Session, selectinload
 
-from ..models import Channel, ChannelStatus, DownloadStatus, Video
+from ..models import Channel, ChannelScanType, ChannelStatus, DownloadStatus, Video
 from ..schemas import ChannelCreate, ChannelListItem, ChannelUpdate
+from .youtube_dl import (
+    apply_scan_type_name_suffix,
+    infer_channel_name_from_url,
+    normalize_channel_url,
+)
 
 
 class ChannelService:
@@ -33,6 +38,7 @@ class ChannelService:
                 name=channel.name,
                 url=channel.url,
                 description=channel.description,
+                scan_type=channel.scan_type,
                 poll_minutes=channel.poll_minutes,
                 auto_download=channel.auto_download,
                 download_concurrency=channel.download_concurrency,
@@ -106,12 +112,19 @@ class ChannelService:
         return list(self.db.scalars(query).all())
 
     def create_channel(self, payload: ChannelCreate) -> Channel:
-        if self.db.scalar(select(Channel).where(Channel.url == payload.url)) is not None:
+        scan_type = payload.scan_type
+        normalized_url = normalize_channel_url(payload.url, scan_type)
+        if self._find_channel_by_normalized_url(normalized_url) is not None:
             raise ValueError("Channel URL already exists")
+        base_name = (
+            payload.name.strip() if payload.name else infer_channel_name_from_url(normalized_url)
+        )
+        name = apply_scan_type_name_suffix(base_name, scan_type)
         channel = Channel(
-            name=payload.name,
-            url=payload.url,
+            name=name,
+            url=normalized_url,
             description=payload.description,
+            scan_type=scan_type,
             poll_minutes=payload.poll_minutes,
             auto_download=payload.auto_download,
             download_concurrency=payload.download_concurrency,
@@ -127,11 +140,21 @@ class ChannelService:
 
     def update_channel(self, channel: Channel, payload: ChannelUpdate) -> Channel:
         updates = payload.model_dump(exclude_unset=True)
-        next_url = updates.get("url")
+        next_scan_type = updates.get("scan_type", channel.scan_type)
+        if not isinstance(next_scan_type, ChannelScanType):
+            next_scan_type = ChannelScanType(next_scan_type)
+        next_url = updates.get("url", channel.url)
+        next_url = normalize_channel_url(next_url, next_scan_type)
+        updates["url"] = next_url
+        updates["scan_type"] = next_scan_type
         if next_url and next_url != channel.url:
-            existing = self.db.scalar(select(Channel).where(Channel.url == next_url))
+            existing = self._find_channel_by_normalized_url(next_url, exclude_id=channel.id)
             if existing is not None:
                 raise ValueError("Channel URL already exists")
+        if "name" in updates:
+            updates["name"] = apply_scan_type_name_suffix(updates["name"], next_scan_type)
+        elif "scan_type" in updates:
+            updates["name"] = apply_scan_type_name_suffix(channel.name, next_scan_type)
         for field, value in updates.items():
             setattr(channel, field, value)
         channel.updated_at = datetime.utcnow()
@@ -143,6 +166,20 @@ class ChannelService:
     def delete_channel(self, channel: Channel) -> None:
         self.db.delete(channel)
         self.db.commit()
+
+    def _find_channel_by_normalized_url(
+        self,
+        normalized_url: str,
+        *,
+        exclude_id: int | None = None,
+    ) -> Channel | None:
+        for channel in self.db.scalars(select(Channel)).all():
+            if exclude_id is not None and channel.id == exclude_id:
+                continue
+            channel_url = normalize_channel_url(channel.url, channel.scan_type)
+            if channel_url == normalized_url:
+                return channel
+        return None
 
     def upsert_video(
         self,

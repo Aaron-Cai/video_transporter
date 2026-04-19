@@ -1,17 +1,19 @@
 import html
 import mimetypes
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import FileResponse, HTMLResponse
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..models import ChannelScanType
 from ..scheduler import ChannelScheduler
 from ..schemas import (
     ChannelCreate,
     ChannelListItem,
+    ChannelMetadataResponse,
     ChannelRead,
     ChannelUpdate,
     DownloadDeferredResponse,
@@ -71,6 +73,20 @@ def list_channels(
     for channel in channels:
         channel.next_check_at = scheduler.get_next_check_at(channel.id)
     return channels
+
+
+@router.get("/metadata", response_model=ChannelMetadataResponse)
+def get_channel_metadata(
+    url: Annotated[str, Query(min_length=1, max_length=500)],
+    sync_manager: Annotated[SyncManager, Depends(get_sync_manager)],
+    scan_type: Annotated[ChannelScanType, Query()] = ChannelScanType.VIDEOS,
+) -> ChannelMetadataResponse:
+    metadata = sync_manager.youtube_dl.get_channel_metadata(url, scan_type)
+    return ChannelMetadataResponse(
+        name=metadata["name"],
+        url=metadata["url"],
+        scan_type=scan_type,
+    )
 
 
 @router.get("/{channel_id}", response_model=ChannelRead)

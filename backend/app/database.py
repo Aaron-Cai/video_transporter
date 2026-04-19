@@ -46,6 +46,13 @@ def ensure_schema() -> None:
             connection.execute(
                 text("ALTER TABLE channels ADD COLUMN prefer_hdr BOOLEAN NOT NULL DEFAULT 0")
             )
+        if "scan_type" not in channel_columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE channels ADD COLUMN "
+                    "scan_type VARCHAR(20) NOT NULL DEFAULT 'videos'"
+                )
+            )
 
 
 def get_db() -> Generator[Session, None, None]:

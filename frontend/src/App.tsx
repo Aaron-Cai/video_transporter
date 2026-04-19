@@ -5,6 +5,7 @@ import {
   downloadDeferredVideos,
   downloadPendingVideos,
   fetchChannel,
+  fetchChannelMetadata,
   fetchChannels,
   retryFailedDownloads,
   syncChannel,
@@ -21,6 +22,7 @@ const initialForm: ChannelFormState = {
   name: "",
   url: "",
   description: "",
+  scan_type: "videos",
   poll_minutes: 30,
   auto_download: true,
   download_concurrency: 1,
@@ -128,6 +130,26 @@ function formatVideoStatus(status: Channel["videos"][number]["status"]): string 
   return labels[status];
 }
 
+function formatScanType(scanType: ChannelFormState["scan_type"]): string {
+  return scanType === "shorts" ? "Shorts" : "Videos";
+}
+
+function applyScanTypeNameSuffix(
+  name: string,
+  scanType: ChannelFormState["scan_type"],
+): string {
+  const suffix = " - Shorts";
+  const trimmed = name.trim();
+  if (scanType === "shorts") {
+    return trimmed.toLowerCase().endsWith(suffix.toLowerCase())
+      ? trimmed
+      : `${trimmed}${suffix}`;
+  }
+  return trimmed.toLowerCase().endsWith(suffix.toLowerCase())
+    ? trimmed.slice(0, -suffix.length).trimEnd()
+    : trimmed;
+}
+
 export function App() {
   const [channels, setChannels] = useState<ChannelListItem[]>([]);
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
@@ -135,6 +157,7 @@ export function App() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [detectingName, setDetectingName] = useState(false);
   const [message, setMessage] = useState("");
   const [deferredLimit, setDeferredLimit] = useState(20);
   const [pendingLimit, setPendingLimit] = useState(20);
@@ -211,6 +234,7 @@ export function App() {
       name: channel.name,
       url: channel.url,
       description: channel.description ?? "",
+      scan_type: channel.scan_type,
       poll_minutes: channel.poll_minutes,
       auto_download: channel.auto_download,
       download_concurrency: channel.download_concurrency,
@@ -251,6 +275,25 @@ export function App() {
       resetForm();
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleDetectChannelName() {
+    if (!form.url.trim()) {
+      return;
+    }
+    setDetectingName(true);
+    try {
+      const metadata = await fetchChannelMetadata(form.url, form.scan_type);
+      setForm((current) => ({
+        ...current,
+        name: metadata.name,
+        url: metadata.url,
+        scan_type: metadata.scan_type,
+      }));
+      setMessage("已根据 URL 识别频道名称");
+    } finally {
+      setDetectingName(false);
     }
   }
 
@@ -366,6 +409,7 @@ export function App() {
                   <p>{channel.description || channel.url}</p>
                 </div>
                 <div className="channel-card-meta">
+                  <span>{formatScanType(channel.scan_type)}</span>
                   <span>{channel.status === "active" ? "启用" : "暂停"}</span>
                   <span>
                     下次{" "}
@@ -472,6 +516,10 @@ export function App() {
                 <section className="detail-section">
                   <h3>下载偏好</h3>
                   <div className="detail-grid">
+                    <div>
+                      <span>扫描类型</span>
+                      <strong>{formatScanType(selectedChannel.scan_type)}</strong>
+                    </div>
                     <div>
                       <span>目标分辨率</span>
                       <strong>{selectedChannel.preferred_resolution}p</strong>
@@ -677,13 +725,22 @@ export function App() {
             <form className="channel-form" onSubmit={handleSubmit}>
               <label>
                 <span>频道名称</span>
-                <input
-                  value={form.name}
-                  onChange={(event) =>
-                    setForm({ ...form, name: event.target.value })
-                  }
-                  required
-                />
+                <div className="input-with-action">
+                  <input
+                    value={form.name}
+                    onChange={(event) =>
+                      setForm({ ...form, name: event.target.value })
+                    }
+                    placeholder="留空时自动识别"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleDetectChannelName()}
+                    disabled={detectingName || !form.url.trim()}
+                  >
+                    {detectingName ? "识别中..." : "识别"}
+                  </button>
+                </div>
               </label>
               <label>
                 <span>频道 URL</span>
@@ -692,9 +749,34 @@ export function App() {
                   onChange={(event) =>
                     setForm({ ...form, url: event.target.value })
                   }
+                  onBlur={() => {
+                    if (!form.name.trim()) {
+                      void handleDetectChannelName();
+                    }
+                  }}
                   placeholder="https://www.youtube.com/@channel"
                   required
                 />
+              </label>
+              <label>
+                <span>扫描类型</span>
+                <select
+                  value={form.scan_type}
+                  onChange={(event) => {
+                    const scanType = event.target
+                      .value as ChannelFormState["scan_type"];
+                    setForm({
+                      ...form,
+                      scan_type: scanType,
+                      name: form.name
+                        ? applyScanTypeNameSuffix(form.name, scanType)
+                        : form.name,
+                    });
+                  }}
+                >
+                  <option value="videos">Videos</option>
+                  <option value="shorts">Shorts</option>
+                </select>
               </label>
               <label>
                 <span>描述</span>

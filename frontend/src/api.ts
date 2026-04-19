@@ -1,5 +1,10 @@
 import axios from "axios";
-import type { Channel, ChannelFormState, ChannelListItem } from "./types";
+import type {
+  Channel,
+  ChannelFormState,
+  ChannelListItem,
+  ChannelScanType,
+} from "./types";
 
 const http = axios.create({
   baseURL: "/api",
@@ -12,6 +17,20 @@ export async function fetchChannels(): Promise<ChannelListItem[]> {
 
 export async function fetchChannel(channelId: number): Promise<Channel> {
   const response = await http.get<Channel>(`/channels/${channelId}`);
+  return response.data;
+}
+
+export async function fetchChannelMetadata(
+  url: string,
+  scanType: ChannelScanType,
+): Promise<{ name: string; url: string; scan_type: ChannelScanType }> {
+  const response = await http.get<{
+    name: string;
+    url: string;
+    scan_type: ChannelScanType;
+  }>("/channels/metadata", {
+    params: { url, scan_type: scanType },
+  });
   return response.data;
 }
 

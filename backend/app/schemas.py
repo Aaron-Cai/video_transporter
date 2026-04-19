@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field, field_serializer
 
-from .models import ChannelStatus, DownloadStatus
+from .models import ChannelScanType, ChannelStatus, DownloadStatus
 
 
 class ApiModel(BaseModel):
@@ -21,9 +21,10 @@ class ApiModel(BaseModel):
 
 
 class ChannelBase(ApiModel):
-    name: str = Field(min_length=1, max_length=255)
+    name: str | None = Field(default=None, max_length=255)
     url: str = Field(min_length=1, max_length=500)
     description: str | None = None
+    scan_type: ChannelScanType = ChannelScanType.VIDEOS
     poll_minutes: int = Field(default=30, ge=5, le=1440)
     auto_download: bool = True
     download_concurrency: int = Field(default=1, ge=1, le=5)
@@ -41,6 +42,7 @@ class ChannelUpdate(ApiModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     url: str | None = Field(default=None, min_length=1, max_length=500)
     description: str | None = None
+    scan_type: ChannelScanType | None = None
     poll_minutes: int | None = Field(default=None, ge=5, le=1440)
     auto_download: bool | None = None
     download_concurrency: int | None = Field(default=None, ge=1, le=5)
@@ -67,6 +69,7 @@ class ChannelRead(ApiModel):
     name: str
     url: str
     description: str | None
+    scan_type: ChannelScanType
     poll_minutes: int
     auto_download: bool
     download_concurrency: int
@@ -88,6 +91,7 @@ class ChannelListItem(ApiModel):
     name: str
     url: str
     description: str | None
+    scan_type: ChannelScanType
     poll_minutes: int
     auto_download: bool
     download_concurrency: int
@@ -107,6 +111,12 @@ class ChannelListItem(ApiModel):
 
 class SyncResponse(ApiModel):
     detail: str
+
+
+class ChannelMetadataResponse(ApiModel):
+    name: str
+    url: str
+    scan_type: ChannelScanType
 
 
 class RetryFailedResponse(ApiModel):

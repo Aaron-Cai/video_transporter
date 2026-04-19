@@ -12,10 +12,64 @@ from typing import Any, Literal
 from urllib.parse import parse_qs, urlparse
 
 from ..config import BASE_DIR, settings
+from ..models import ChannelScanType
 
 logger = logging.getLogger("video_transporter.download")
 
 DownloaderFlavor = Literal["yt-dlp", "youtube-dl"]
+SHORTS_NAME_SUFFIX = " - Shorts"
+
+
+def normalize_channel_url(
+    channel_url: str,
+    scan_type: ChannelScanType = ChannelScanType.VIDEOS,
+) -> str:
+    parsed = urlparse(channel_url.strip())
+    path = parsed.path.rstrip("/")
+    tab = scan_type.value
+    if not path:
+        return channel_url.strip()
+
+    if path.endswith("/videos") or path.endswith("/shorts"):
+        base_path = path.rsplit("/", maxsplit=1)[0]
+        return parsed._replace(path=f"{base_path}/{tab}").geturl()
+
+    if (
+        path.startswith("/@")
+        or path.startswith("/channel/")
+        or path.startswith("/c/")
+        or path.startswith("/user/")
+    ):
+        return parsed._replace(path=f"{path}/{tab}").geturl()
+    return channel_url.strip()
+
+
+def infer_channel_name_from_url(channel_url: str) -> str:
+    parsed = urlparse(channel_url.strip())
+    path = parsed.path.strip("/")
+    if not path:
+        return parsed.netloc or "YouTube Channel"
+
+    parts = [part for part in path.split("/") if part not in {"videos", "shorts"}]
+    if not parts:
+        return parsed.netloc or "YouTube Channel"
+    candidate = parts[-1]
+    return candidate.removeprefix("@") or "YouTube Channel"
+
+
+def apply_scan_type_name_suffix(name: str, scan_type: ChannelScanType) -> str:
+    cleaned = name.strip()
+    if not cleaned:
+        cleaned = "YouTube Channel"
+
+    if scan_type == ChannelScanType.SHORTS:
+        if cleaned.lower().endswith(SHORTS_NAME_SUFFIX.lower()):
+            return cleaned
+        return f"{cleaned}{SHORTS_NAME_SUFFIX}"
+
+    if cleaned.lower().endswith(SHORTS_NAME_SUFFIX.lower()):
+        return cleaned[: -len(SHORTS_NAME_SUFFIX)].rstrip()
+    return cleaned
 
 
 class YoutubeDlClient:
@@ -78,13 +132,17 @@ class YoutubeDlClient:
                 logger.error("Downloader stderr: %s", exc.stderr.strip()[:4000])
             raise
 
-    def list_channel_videos(self, channel_url: str) -> list[dict[str, Any]]:
-        normalized_url = self._normalize_channel_url(channel_url)
-        logger.info("Listing channel videos: %s", normalized_url)
+    def list_channel_videos(
+        self,
+        channel_url: str,
+        scan_type: ChannelScanType = ChannelScanType.VIDEOS,
+    ) -> list[dict[str, Any]]:
+        normalized_url = normalize_channel_url(channel_url, scan_type)
+        logger.info("Listing channel %s: %s", scan_type.value, normalized_url)
         result = self._run(self._build_list_channel_args(normalized_url))
         payload = json.loads(result.stdout or "{}")
         entries = payload.get("entries") or []
-        logger.info("Channel scan completed: %s videos discovered", len(entries))
+        logger.info("Channel scan completed: %s entries discovered", len(entries))
         return [
             {
                 "youtube_video_id": entry.get("id"),
@@ -94,6 +152,32 @@ class YoutubeDlClient:
             for entry in entries
             if entry.get("id")
         ]
+
+    def get_channel_metadata(
+        self,
+        channel_url: str,
+        scan_type: ChannelScanType = ChannelScanType.VIDEOS,
+    ) -> dict[str, str]:
+        normalized_url = normalize_channel_url(channel_url, scan_type)
+        logger.info("Resolving channel metadata: %s", normalized_url)
+        try:
+            result = self._run(self._build_channel_metadata_args(normalized_url))
+            payload = json.loads(result.stdout or "{}")
+            raw_name = (
+                payload.get("channel")
+                or payload.get("uploader")
+                or payload.get("playlist_uploader")
+                or payload.get("title")
+                or infer_channel_name_from_url(normalized_url)
+            )
+        except Exception:
+            logger.exception("Channel metadata detection failed, falling back to URL parsing")
+            raw_name = infer_channel_name_from_url(normalized_url)
+        name = self._clean_detected_channel_name(raw_name)
+        return {
+            "name": apply_scan_type_name_suffix(name, scan_type),
+            "url": normalized_url,
+        }
 
     def download_video(
         self,
@@ -174,6 +258,18 @@ class YoutubeDlClient:
             args.extend(self._yt_dlp_listing_args())
         return [*args, channel_url]
 
+    def _build_channel_metadata_args(self, channel_url: str) -> list[str]:
+        args = [
+            "--ignore-errors",
+            "--flat-playlist",
+            "--dump-single-json",
+            "--playlist-end",
+            "1",
+        ]
+        if self.downloader_flavor == "yt-dlp":
+            args.extend(self._yt_dlp_listing_args())
+        return [*args, channel_url]
+
     def _build_download_args(
         self,
         video_url: str,
@@ -248,19 +344,12 @@ class YoutubeDlClient:
         return Path(system_ffmpeg) if system_ffmpeg else None
 
     @staticmethod
-    def _normalize_channel_url(channel_url: str) -> str:
-        parsed = urlparse(channel_url)
-        path = parsed.path.rstrip("/")
-        if not path or path.endswith("/videos"):
-            return channel_url
-        if (
-            path.startswith("/@")
-            or path.startswith("/channel/")
-            or path.startswith("/c/")
-            or path.startswith("/user/")
-        ):
-            return parsed._replace(path=f"{path}/videos").geturl()
-        return channel_url
+    def _clean_detected_channel_name(name: str) -> str:
+        cleaned = name.strip()
+        for suffix in (" - Videos", " - Shorts", " Videos", " Shorts"):
+            if cleaned.lower().endswith(suffix.lower()):
+                return cleaned[: -len(suffix)].rstrip()
+        return cleaned
 
     @staticmethod
     def _safe_dir_name(value: str) -> str:

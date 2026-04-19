@@ -1,4 +1,5 @@
 export type ChannelStatus = "active" | "paused";
+export type ChannelScanType = "videos" | "shorts";
 export type VideoStatus =
   | "pending"
   | "downloading"
@@ -25,6 +26,7 @@ export interface ChannelListItem {
   name: string;
   url: string;
   description: string | null;
+  scan_type: ChannelScanType;
   poll_minutes: number;
   auto_download: boolean;
   download_concurrency: number;
@@ -53,6 +55,7 @@ export interface ChannelFormState {
   name: string;
   url: string;
   description: string;
+  scan_type: ChannelScanType;
   poll_minutes: number;
   auto_download: boolean;
   download_concurrency: number;

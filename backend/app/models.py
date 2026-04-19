@@ -15,6 +15,11 @@ class ChannelStatus(str, Enum):
     PAUSED = "paused"
 
 
+class ChannelScanType(str, Enum):
+    VIDEOS = "videos"
+    SHORTS = "shorts"
+
+
 class DownloadStatus(str, Enum):
     PENDING = "pending"
     DOWNLOADING = "downloading"
@@ -38,6 +43,14 @@ class Channel(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     url: Mapped[str] = mapped_column(String(500), nullable=False, unique=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    scan_type: Mapped[ChannelScanType] = mapped_column(
+        SqlEnum(
+            ChannelScanType,
+            values_callable=lambda enum_class: [item.value for item in enum_class],
+        ),
+        default=ChannelScanType.VIDEOS,
+        nullable=False,
+    )
     status: Mapped[ChannelStatus] = mapped_column(
         SqlEnum(ChannelStatus), default=ChannelStatus.ACTIVE, nullable=False
     )

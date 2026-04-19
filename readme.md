@@ -15,6 +15,8 @@ A project scaffold for managing YouTube channels and downloading videos automati
 ## Implemented Features
 
 - Create, update, and delete YouTube channels
+- Choose whether each channel task scans the channel's Videos tab or Shorts tab
+- Detect a channel name from its URL when creating a channel task
 - Trigger a one-time full sync after adding a new channel
 - Poll channels on a schedule and automatically download newly discovered videos
 - Web console for channel management and download record viewing
@@ -78,6 +80,7 @@ This runs the backend and frontend in the current terminal, starts `uv sync` for
 The channel state fields describe two related but separate concepts:
 
 - `status`: Whether the channel participates in automatic scheduled checks.
+- `scan_type`: Which YouTube tab this channel task scans. It is either `videos` or `shorts`, defaults to `videos`, and Shorts channel names are stored with a ` - Shorts` suffix.
 - `last_checked_at`: The most recent time the system attempted a channel check. Successful and failed attempts both update this value.
 - `last_sync_at`: The most recent time a channel check completed successfully and refreshed local video records.
 - `next_check_at`: The scheduler's next planned automatic check time. Paused channels do not have a scheduled next check.
@@ -102,11 +105,11 @@ stateDiagram-v2
     SyncTask --> Paused: Task ends and channel is paused
 ```
 
-Each sync task attempts to list the channel videos and write them to the local database:
+Each sync task attempts to list the configured channel tab and write entries to the local database. The channel URL is normalized to `/videos` or `/shorts` according to `scan_type`, so one YouTube channel can be tracked as separate Videos and Shorts tasks.
 
 ```mermaid
 flowchart TD
-    A["Sync task starts"] --> B["List channel videos with yt-dlp / youtube-dl"]
+    A["Sync task starts"] --> B["List configured Videos or Shorts tab with yt-dlp / youtube-dl"]
     B --> C{"List and parse succeeded?"}
 
     C -->|No| D["Update last_checked_at\nKeep last_sync_at unchanged\nSet last_error"]

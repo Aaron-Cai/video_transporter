@@ -212,7 +212,7 @@ class SyncManager:
                 )
                 return
             logger.info("Starting channel sync: channel_id=%s name=%s", channel.id, channel.name)
-            entries = self.youtube_dl.list_channel_videos(channel.url)
+            entries = self.youtube_dl.list_channel_videos(channel.url, channel.scan_type)
             is_initial_sync = channel.last_sync_at is None
             new_video_count = 0
             for index, entry in enumerate(entries):

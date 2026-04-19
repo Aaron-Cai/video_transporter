@@ -15,6 +15,8 @@
 ## 已实现能力
 
 - YouTube 频道增删改查
+- 每个频道任务可选择扫描 Videos 标签页或 Shorts 标签页
+- 新增频道任务时可根据 URL 自动识别频道名称
 - 新增频道后触发一次性全量同步
 - 定时轮询频道并发现新视频后自动下载
 - Web Console 管理频道与查看视频下载记录
@@ -78,6 +80,7 @@ chmod +x ./start-dev.sh
 频道状态字段描述的是两个相关但彼此独立的概念：
 
 - `status`: 频道是否参与自动定时检查。
+- `scan_type`: 该频道任务扫描的 YouTube 标签页，只能是 `videos` 或 `shorts`，默认是 `videos`；Shorts 频道名称会自动加上 ` - Shorts` 后缀。
 - `last_checked_at`: 系统最近一次尝试检查频道的时间。成功和失败都会更新这个值。
 - `last_sync_at`: 最近一次频道检查成功完成，并刷新本地视频记录的时间。
 - `next_check_at`: 调度器计划的下一次自动检查时间。暂停频道不会有下一次自动检查时间。
@@ -102,11 +105,11 @@ stateDiagram-v2
     同步任务 --> 暂停: 任务结束且频道仍为暂停
 ```
 
-每一次同步任务都会尝试列出频道视频，并写入本地数据库：
+每一次同步任务都会尝试列出频道配置的标签页，并写入本地数据库。频道 URL 会根据 `scan_type` 规范化为 `/videos` 或 `/shorts`，所以同一个 YouTube 频道可以拆成独立的 Videos 与 Shorts 任务。
 
 ```mermaid
 flowchart TD
-    A["同步任务开始"] --> B["用 yt-dlp / youtube-dl 列出频道视频"]
+    A["同步任务开始"] --> B["用 yt-dlp / youtube-dl 列出配置的 Videos 或 Shorts 标签页"]
     B --> C{"列表获取并解析成功？"}
 
     C -->|否| D["更新 last_checked_at\n保持 last_sync_at 不变\n写入 last_error"]

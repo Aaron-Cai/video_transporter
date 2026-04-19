@@ -240,6 +240,17 @@ select optgroup {
   gap: 0.8rem;
 }
 
+.input-with-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.6rem;
+}
+
+.input-with-action button {
+  border-radius: 18px;
+  white-space: nowrap;
+}
+
 .checkbox {
   display: flex;
   align-items: center;
@@ -453,6 +464,7 @@ select optgroup {
   }
 
   .grid-two,
+  .input-with-action,
   .detail-grid,
   .video-row {
     grid-template-columns: 1fr;
