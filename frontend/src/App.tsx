@@ -26,7 +26,7 @@ const initialForm: ChannelFormState = {
   poll_minutes: 30,
   auto_download: true,
   download_concurrency: 1,
-  initial_download_limit: 100,
+  initial_download_limit: 20,
   preferred_resolution: 1080,
   prefer_hdr: false,
   status: "active",

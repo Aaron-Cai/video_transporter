@@ -103,6 +103,7 @@ stateDiagram-v2
 
     同步任务 --> 启用: 任务结束且频道仍为启用
     同步任务 --> 暂停: 任务结束且频道仍为暂停
+    启用 --> 暂停: YouTube 限流或机器人验证阻止下载
 ```
 
 每一次同步任务都会尝试列出频道配置的标签页，并写入本地数据库。频道 URL 会根据 `scan_type` 规范化为 `/videos` 或 `/shorts`，所以同一个 YouTube 频道可以拆成独立的 Videos 与 Shorts 任务。
@@ -134,7 +135,7 @@ flowchart TD
 视频下载状态描述每条已发现视频的下载生命周期：
 
 - `pending`: 待处理，视频符合下载策略，但还没有开始下载。
-- `deferred`: 暂不下载，视频是在初次存量回填时发现的，但超过了频道的 `initial_download_limit`。页面显示为“暂不下载”，仍可手动下载。
+- `deferred`: 暂不下载，视频被有意延后处理。包括初次存量回填时超过频道 `initial_download_limit` 的较早视频，以及因 YouTube 限流或机器人验证被延后的下载。页面显示为“暂不下载”，仍可手动下载。
 - `downloading`: 下载中，下载 worker 已经开始处理这条视频。
 - `completed`: 已完成，视频已下载成功，并记录了本地 `download_path`。
 - `failed`: 失败，下载过程出错，或后端启动时发现上次停在 `downloading` 的中断任务。
@@ -142,7 +143,7 @@ flowchart TD
 
 系统还有一个不写入数据库的隐含 `queued` 状态：视频已经提交到 worker 线程池，但在 worker 真正开始前，数据库仍显示原来的状态。
 
-`initial_download_limit` 默认是 `100`。频道首次成功同步时，最新的 `initial_download_limit` 条视频会创建为 `pending`；超过数量限制的更早历史视频会创建为 `deferred`。后续同步发现的新发布视频仍会创建为 `pending`，因此新视频仍可自动下载。
+`initial_download_limit` 默认是 `20`。频道首次成功同步时，最新的 `initial_download_limit` 条视频会创建为 `pending`；超过数量限制的更早历史视频会创建为 `deferred`。后续同步发现的新发布视频仍会创建为 `pending`，因此新视频仍可自动下载。
 
 ```mermaid
 stateDiagram-v2
@@ -164,6 +165,7 @@ stateDiagram-v2
 
     下载中 --> 已完成: 下载器返回本地输出路径
     下载中 --> 跳过: 下载器没有返回输出路径
+    下载中 --> 暂不下载: YouTube 限流或机器人验证阻止访问
     下载中 --> 失败: 下载器抛出异常
     下载中 --> 失败: 后端启动时恢复中断任务
 
@@ -188,6 +190,7 @@ stateDiagram-v2
 - 如果项目根目录存在 `cookies.txt`，会自动在下载时带上 cookies
 - 默认使用单个下载 worker，减少并发请求
 - 默认每次下载前会随机等待 8 到 20 秒，避免过于密集地请求 YouTube
+- 如果下载时 YouTube 返回限流、机器人验证、cookies 或登录要求，程序会将当前视频延后为 `deferred`，并暂停频道，避免已排队的自动下载继续请求。添加或刷新 `cookies.txt`，等待限制解除后，可以重新启用频道或手动触发下载。
 - 失败任务支持按“最近失败的前 N 个”重新加入队列，默认 20 个
 - 可通过 `.env` 覆盖：
   - `VIDEO_TRANSPORTER_YT_DLP_PATH`

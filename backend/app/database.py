@@ -32,7 +32,7 @@ def ensure_schema() -> None:
             connection.execute(
                 text(
                     "ALTER TABLE channels ADD COLUMN "
-                    "initial_download_limit INTEGER NOT NULL DEFAULT 100"
+                    "initial_download_limit INTEGER NOT NULL DEFAULT 20"
                 )
             )
         if "preferred_resolution" not in channel_columns:

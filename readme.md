@@ -103,6 +103,7 @@ stateDiagram-v2
 
     SyncTask --> Active: Task ends and channel is active
     SyncTask --> Paused: Task ends and channel is paused
+    Active --> Paused: YouTube rate limit or bot verification blocks downloads
 ```
 
 Each sync task attempts to list the configured channel tab and write entries to the local database. The channel URL is normalized to `/videos` or `/shorts` according to `scan_type`, so one YouTube channel can be tracked as separate Videos and Shorts tasks.
@@ -134,7 +135,7 @@ In short, `last_checked_at` answers "when did the system last try?", while `last
 Video download states describe each discovered video's download lifecycle:
 
 - `pending`: The video is eligible for downloading but has not started yet.
-- `deferred`: The video was discovered during the initial backfill but is outside the channel's `initial_download_limit`. It is shown as "Do not download for now" in the UI and can still be downloaded manually.
+- `deferred`: The video is intentionally delayed. This includes older initial backfill videos outside the channel's `initial_download_limit`, and videos delayed after YouTube rate limiting or bot verification. It is shown as "Do not download for now" in the UI and can still be downloaded manually.
 - `downloading`: A download worker has started this video.
 - `completed`: The video downloaded successfully and has a local `download_path`.
 - `failed`: The download failed, or the backend restarted while the video was still marked as `downloading`.
@@ -142,7 +143,7 @@ Video download states describe each discovered video's download lifecycle:
 
 There is also an implicit in-memory `queued` state: the video has been submitted to the worker pool, but the database still shows its previous state until a worker starts.
 
-`initial_download_limit` defaults to `100`. During a channel's first successful sync, the newest `initial_download_limit` videos are created as `pending`; older backfill videos are created as `deferred`. Later syncs treat newly published videos as `pending`, so new videos can still be downloaded automatically.
+`initial_download_limit` defaults to `20`. During a channel's first successful sync, the newest `initial_download_limit` videos are created as `pending`; older backfill videos are created as `deferred`. Later syncs treat newly published videos as `pending`, so new videos can still be downloaded automatically.
 
 ```mermaid
 stateDiagram-v2
@@ -164,6 +165,7 @@ stateDiagram-v2
 
     Downloading --> Completed: Downloader returns a local output path
     Downloading --> Skipped: Downloader returns no output path
+    Downloading --> Deferred: YouTube rate limit or bot verification blocks access
     Downloading --> Failed: Downloader raises an error
     Downloading --> Failed: Backend startup recovers interrupted downloads
 
@@ -188,6 +190,7 @@ Manual download actions do not require the channel to be `active`:
 - If `cookies.txt` exists in the project root, it is automatically used for downloads
 - Downloads run with a single worker by default to reduce concurrent requests
 - A random 8 to 20 second interval is applied before each download by default to avoid overly aggressive requests to YouTube
+- If YouTube returns rate limiting, bot verification, or cookie/login requirements during a download, the app defers that video and pauses the channel to stop queued automatic downloads from continuing. Add or refresh `cookies.txt`, wait for the limit to clear, then set the channel back to active or trigger manual downloads.
 - Failed tasks can be re-queued by selecting the most recent failed `N` items, with a default of 20
 - The following values can be overridden via `.env`:
   - `VIDEO_TRANSPORTER_YT_DLP_PATH`

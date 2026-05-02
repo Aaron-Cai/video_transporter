@@ -228,6 +228,15 @@ class ChannelService:
         self.db.refresh(channel)
         return channel
 
+    def pause_channel(self, channel: Channel, *, error: str | None = None) -> Channel:
+        channel.status = ChannelStatus.PAUSED
+        channel.last_checked_at = datetime.utcnow()
+        channel.last_error = error
+        self.db.add(channel)
+        self.db.commit()
+        self.db.refresh(channel)
+        return channel
+
     def update_video_status(
         self,
         video: Video,

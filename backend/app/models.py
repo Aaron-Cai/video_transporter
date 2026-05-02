@@ -57,7 +57,7 @@ class Channel(TimestampMixin, Base):
     poll_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
     auto_download: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     download_concurrency: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
-    initial_download_limit: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
+    initial_download_limit: Mapped[int] = mapped_column(Integer, default=20, nullable=False)
     preferred_resolution: Mapped[int] = mapped_column(Integer, default=1080, nullable=False)
     prefer_hdr: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

@@ -10,7 +10,7 @@ from threading import Lock
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
-from ..models import Channel, DownloadStatus
+from ..models import Channel, ChannelStatus, DownloadStatus
 from .channel_service import ChannelService
 from .youtube_dl import YoutubeDlClient
 
@@ -22,6 +22,29 @@ AUTO_DOWNLOADABLE_STATUSES = {
     DownloadStatus.SKIPPED,
 }
 
+YOUTUBE_ACCESS_LIMIT_TOKENS = (
+    "http error 429",
+    "too many requests",
+    "sign in to confirm",
+    "not a bot",
+    "cookies",
+)
+
+
+def _called_process_output(exc: subprocess.CalledProcessError) -> str:
+    return "\n".join(
+        part.strip()
+        for part in (exc.stderr or "", exc.stdout or "")
+        if part and part.strip()
+    )
+
+
+def is_youtube_access_limited(exc: Exception) -> bool:
+    if not isinstance(exc, subprocess.CalledProcessError):
+        return False
+    output = _called_process_output(exc).lower()
+    return any(token in output for token in YOUTUBE_ACCESS_LIMIT_TOKENS)
+
 
 def classify_sync_error(exc: Exception) -> str:
     if isinstance(exc, FileNotFoundError):
@@ -31,15 +54,15 @@ def classify_sync_error(exc: Exception) -> str:
         return f"输出解析失败：下载器没有返回合法的频道列表 JSON（{exc}）"
 
     if isinstance(exc, subprocess.CalledProcessError):
-        output = "\n".join(
-            part.strip()
-            for part in (exc.stderr or "", exc.stdout or "")
-            if part and part.strip()
-        )
+        output = _called_process_output(exc)
         detail = output[:1200] if output else str(exc)
         lowered = output.lower()
 
-        if any(token in lowered for token in ("sign in", "login", "cookie", "cookies", "account")):
+        if "http error 429" in lowered or "too many requests" in lowered:
+            category = "请求过于频繁"
+        elif any(
+            token in lowered for token in ("sign in", "login", "cookie", "cookies", "account")
+        ):
             category = "登录或 Cookies 限制"
         elif any(
             token in lowered
@@ -69,8 +92,6 @@ def classify_sync_error(exc: Exception) -> str:
             )
         ):
             category = "网络访问失败"
-        elif "http error 429" in lowered or "too many requests" in lowered:
-            category = "请求过于频繁"
         else:
             category = "下载器执行失败"
 
@@ -90,7 +111,13 @@ class SyncManager:
         logger.info("Queueing channel sync: channel_id=%s", channel_id)
         self.sync_executor.submit(self._sync_channel, channel_id)
 
-    def submit_video_download(self, channel_id: int, video_id: int) -> None:
+    def submit_video_download(
+        self,
+        channel_id: int,
+        video_id: int,
+        *,
+        allow_paused: bool = False,
+    ) -> None:
         logger.info("Queueing video download: channel_id=%s video_id=%s", channel_id, video_id)
         db = SessionLocal()
         try:
@@ -104,7 +131,7 @@ class SyncManager:
                 )
                 return
             executor = self._get_download_executor(channel_id, channel.download_concurrency)
-            executor.submit(self._download_video_by_id, channel_id, video_id)
+            executor.submit(self._download_video_by_id, channel_id, video_id, allow_paused)
         finally:
             db.close()
 
@@ -155,7 +182,7 @@ class SyncManager:
             service = ChannelService(db)
             failed_videos = service.list_failed_videos(channel_id, limit=limit)
             for video in failed_videos:
-                self.submit_video_download(channel_id, video.id)
+                self.submit_video_download(channel_id, video.id, allow_paused=True)
             logger.info(
                 "Queued failed downloads retry: channel_id=%s count=%s limit=%s",
                 channel_id,
@@ -172,7 +199,7 @@ class SyncManager:
             service = ChannelService(db)
             pending_videos = service.list_pending_videos(channel_id, limit=limit)
             for video in pending_videos:
-                self.submit_video_download(channel_id, video.id)
+                self.submit_video_download(channel_id, video.id, allow_paused=True)
             logger.info(
                 "Queued pending downloads: channel_id=%s count=%s limit=%s",
                 channel_id,
@@ -189,7 +216,7 @@ class SyncManager:
             service = ChannelService(db)
             deferred_videos = service.list_deferred_videos(channel_id, limit=limit)
             for video in deferred_videos:
-                self.submit_video_download(channel_id, video.id)
+                self.submit_video_download(channel_id, video.id, allow_paused=True)
             logger.info(
                 "Queued deferred downloads: channel_id=%s count=%s limit=%s",
                 channel_id,
@@ -243,7 +270,12 @@ class SyncManager:
         finally:
             db.close()
 
-    def _download_video_by_id(self, channel_id: int, video_id: int) -> None:
+    def _download_video_by_id(
+        self,
+        channel_id: int,
+        video_id: int,
+        allow_paused: bool = False,
+    ) -> None:
         db = SessionLocal()
         try:
             channel = ChannelService(db).get_channel(channel_id)
@@ -255,11 +287,18 @@ class SyncManager:
                     video_id,
                 )
                 return
-            self._download_video(db, channel, video_id)
+            self._download_video(db, channel, video_id, allow_paused=allow_paused)
         finally:
             db.close()
 
-    def _download_video(self, db: Session, channel: Channel, video_id: int) -> None:
+    def _download_video(
+        self,
+        db: Session,
+        channel: Channel,
+        video_id: int,
+        *,
+        allow_paused: bool = False,
+    ) -> None:
         service = ChannelService(db)
         channel_id = channel.id
         channel = service.get_channel(channel_id)
@@ -267,6 +306,13 @@ class SyncManager:
             logger.warning(
                 "Video download skipped because channel vanished: channel_id=%s",
                 channel_id,
+            )
+            return
+        if channel.status == ChannelStatus.PAUSED and not allow_paused:
+            logger.info(
+                "Video download skipped because channel is paused: channel_id=%s video_id=%s",
+                channel.id,
+                video_id,
             )
             return
         video = service.get_video(video_id)
@@ -320,7 +366,31 @@ class SyncManager:
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception("Video download failed for video_id=%s", video_id)
-            service.update_video_status(video, status=DownloadStatus.FAILED, error_message=str(exc))
+            error_message = classify_sync_error(exc)
+            if is_youtube_access_limited(exc):
+                service.update_video_status(
+                    video,
+                    status=DownloadStatus.DEFERRED,
+                    error_message=error_message,
+                )
+                service.pause_channel(
+                    channel,
+                    error=(
+                        "YouTube 暂时限制访问，已暂停该频道并延后剩余下载；"
+                        "请稍后重试或配置 cookies.txt 后重新启用。"
+                    ),
+                )
+                logger.warning(
+                    "Paused channel after YouTube access limit: channel_id=%s video_id=%s",
+                    channel.id,
+                    video_id,
+                )
+                return
+            service.update_video_status(
+                video,
+                status=DownloadStatus.FAILED,
+                error_message=error_message,
+            )
 
     def _get_download_executor(self, channel_id: int, max_workers: int) -> ThreadPoolExecutor:
         normalized_workers = max(1, min(5, max_workers))
