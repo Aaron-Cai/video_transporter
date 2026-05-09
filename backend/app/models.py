@@ -87,6 +87,7 @@ class Video(TimestampMixin, Base):
         SqlEnum(DownloadStatus), default=DownloadStatus.PENDING, nullable=False
     )
     download_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    subtitle_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     downloaded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 

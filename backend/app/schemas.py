@@ -59,6 +59,7 @@ class VideoRead(ApiModel):
     webpage_url: str
     status: DownloadStatus
     download_path: str | None
+    subtitle_path: str | None
     downloaded_at: datetime | None
     error_message: str | None
     created_at: datetime

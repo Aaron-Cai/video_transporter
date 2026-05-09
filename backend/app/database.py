@@ -20,6 +20,11 @@ def ensure_schema() -> None:
         return
 
     channel_columns = {column["name"] for column in inspector.get_columns("channels")}
+    video_columns = (
+        {column["name"] for column in inspector.get_columns("videos")}
+        if "videos" in inspector.get_table_names()
+        else set()
+    )
     with engine.begin() as connection:
         if "download_concurrency" not in channel_columns:
             connection.execute(
@@ -53,6 +58,8 @@ def ensure_schema() -> None:
                     "scan_type VARCHAR(20) NOT NULL DEFAULT 'videos'"
                 )
             )
+        if "subtitle_path" not in video_columns:
+            connection.execute(text("ALTER TABLE videos ADD COLUMN subtitle_path VARCHAR(500)"))
 
 
 def get_db() -> Generator[Session, None, None]:

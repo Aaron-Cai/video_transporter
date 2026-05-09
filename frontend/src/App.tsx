@@ -118,6 +118,10 @@ function toDownloadHref(videoId: number): string {
   return `/api/channels/videos/${videoId}/play`;
 }
 
+function toSubtitleHref(videoId: number): string {
+  return `/api/channels/videos/${videoId}/subtitle`;
+}
+
 function formatVideoStatus(status: Channel["videos"][number]["status"]): string {
   const labels: Record<Channel["videos"][number]["status"], string> = {
     pending: "待处理",
@@ -663,6 +667,7 @@ export function App() {
                   <span>标题</span>
                   <span>状态</span>
                   <span>下载路径</span>
+                  <span>字幕路径</span>
                 </div>
                 {filteredVideos.map((video) => (
                   <div className="video-row" key={video.id}>
@@ -678,6 +683,21 @@ export function App() {
                           title={video.download_path}
                         >
                           {video.download_path}
+                        </a>
+                      ) : (
+                        "-"
+                      )}
+                    </span>
+                    <span>
+                      {video.subtitle_path ? (
+                        <a
+                          className="download-link"
+                          href={toSubtitleHref(video.id)}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={video.subtitle_path}
+                        >
+                          {video.subtitle_path}
                         </a>
                       ) : (
                         "-"

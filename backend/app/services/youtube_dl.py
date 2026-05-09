@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import parse_qs, urlparse
@@ -18,6 +19,13 @@ logger = logging.getLogger("video_transporter.download")
 
 DownloaderFlavor = Literal["yt-dlp", "youtube-dl"]
 SHORTS_NAME_SUFFIX = " - Shorts"
+SUBTITLE_EXTENSIONS = {".ass", ".srt", ".ssa", ".ttml", ".vtt"}
+
+
+@dataclass(frozen=True)
+class DownloadedVideo:
+    media_path: Path | None
+    subtitle_path: Path | None
 
 
 def normalize_channel_url(
@@ -186,7 +194,7 @@ class YoutubeDlClient:
         *,
         preferred_resolution: int = 1080,
         prefer_hdr: bool = False,
-    ) -> Path | None:
+    ) -> DownloadedVideo:
         channel_dir = self.download_dir / self._safe_dir_name(channel_name)
         channel_dir.mkdir(parents=True, exist_ok=True)
         output_template = str(channel_dir / "%(upload_date)s [%(id)s].%(ext)s")
@@ -208,11 +216,14 @@ class YoutubeDlClient:
         )
         reported_path = self._extract_destination_path(result.stdout)
         final_path = self.resolve_download_path(channel_name, video_url, reported_path)
+        subtitle_path = self.resolve_subtitle_path(channel_name, video_url, final_path)
         if final_path:
             logger.info("Video download completed: %s", final_path)
         else:
             logger.info("Video download skipped or no output path returned: %s", video_url)
-        return final_path
+        if subtitle_path:
+            logger.info("Subtitle download completed: %s", subtitle_path)
+        return DownloadedVideo(media_path=final_path, subtitle_path=subtitle_path)
 
     def resolve_download_path(
         self,
@@ -241,6 +252,42 @@ class YoutubeDlClient:
             return None
 
         return max(existing_candidates, key=self._download_path_score)
+
+    def resolve_subtitle_path(
+        self,
+        channel_name: str,
+        video_url_or_id: str,
+        media_path: str | Path | None = None,
+    ) -> Path | None:
+        video_id = self._extract_video_id(video_url_or_id)
+        channel_dir = self.download_dir / self._safe_dir_name(channel_name)
+        candidates: list[Path] = []
+
+        if channel_dir.is_dir() and video_id:
+            candidates.extend(
+                path
+                for path in channel_dir.iterdir()
+                if f"[{video_id}]" in path.name and self._is_subtitle_path(path)
+            )
+
+        if media_path is not None:
+            media = Path(media_path)
+            if media.parent.is_dir():
+                candidates.extend(
+                    path
+                    for path in media.parent.iterdir()
+                    if path.name.startswith(f"{media.stem}.") and self._is_subtitle_path(path)
+                )
+
+        existing_candidates = [
+            path
+            for path in candidates
+            if path.is_file() and not self._is_temporary_download_path(path)
+        ]
+        if not existing_candidates:
+            return None
+
+        return max(existing_candidates, key=self._subtitle_path_score)
 
     def _with_common_args(self, args: list[str]) -> list[str]:
         common_args: list[str] = []
@@ -287,12 +334,15 @@ class YoutubeDlClient:
             output_template,
         ]
         if self.downloader_flavor == "yt-dlp":
+            args.extend(self._yt_dlp_subtitle_args())
             args.extend(
                 self._yt_dlp_download_args(
                     preferred_resolution=preferred_resolution,
                     prefer_hdr=prefer_hdr,
                 )
             )
+        else:
+            args.extend(self._youtube_dl_subtitle_args())
         return [*args, video_url]
 
     @staticmethod
@@ -329,6 +379,27 @@ class YoutubeDlClient:
             f"{preferred_format}/{fallback_format}",
             "-S",
             sort_order,
+        ]
+
+    @staticmethod
+    def _yt_dlp_subtitle_args() -> list[str]:
+        return [
+            "--write-subs",
+            "--write-auto-subs",
+            "--sub-langs",
+            "all,-live_chat",
+            "--sub-format",
+            "vtt/srt/best",
+        ]
+
+    @staticmethod
+    def _youtube_dl_subtitle_args() -> list[str]:
+        return [
+            "--write-sub",
+            "--write-auto-sub",
+            "--all-subs",
+            "--sub-format",
+            "vtt/srt/best",
         ]
 
     @staticmethod
@@ -383,9 +454,24 @@ class YoutubeDlClient:
         )
 
     @staticmethod
+    def _is_subtitle_path(path: Path) -> bool:
+        return path.suffix.lower() in SUBTITLE_EXTENSIONS
+
+    @staticmethod
     def _download_path_score(path: Path) -> tuple[int, float]:
         is_final_name = 0 if re.search(r"\.f\d+$", path.stem) else 1
         return (is_final_name, path.stat().st_mtime)
+
+    @staticmethod
+    def _subtitle_path_score(path: Path) -> tuple[int, int, float]:
+        lowered_name = path.name.lower()
+        language_score = 0
+        for score, token in enumerate((".en.", ".zh.", ".zh-hans.", ".zh-hant."), start=1):
+            if token in lowered_name:
+                language_score = score
+                break
+        format_score = 2 if path.suffix.lower() == ".vtt" else 1
+        return (language_score, format_score, path.stat().st_mtime)
 
     def _get_download_interval_seconds(self) -> float:
         min_seconds = max(0.0, self.download_interval_min_seconds)

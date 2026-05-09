@@ -160,6 +160,18 @@ class SyncManager:
             repaired_count = 0
             for video in service.list_completed_videos():
                 if video.download_path and Path(video.download_path).is_file():
+                    subtitle_path = self.youtube_dl.resolve_subtitle_path(
+                        video.channel.name,
+                        video.youtube_video_id,
+                        video.download_path,
+                    )
+                    if subtitle_path and str(subtitle_path) != video.subtitle_path:
+                        service.update_video_download_path(
+                            video,
+                            video.download_path,
+                            str(subtitle_path),
+                        )
+                        repaired_count += 1
                     continue
                 resolved_path = self.youtube_dl.resolve_download_path(
                     video.channel.name,
@@ -168,7 +180,16 @@ class SyncManager:
                 )
                 if resolved_path is None:
                     continue
-                service.update_video_download_path(video, str(resolved_path))
+                subtitle_path = self.youtube_dl.resolve_subtitle_path(
+                    video.channel.name,
+                    video.youtube_video_id,
+                    resolved_path,
+                )
+                service.update_video_download_path(
+                    video,
+                    str(resolved_path),
+                    str(subtitle_path) if subtitle_path else None,
+                )
                 repaired_count += 1
             if repaired_count:
                 logger.warning("Repaired completed download paths: count=%s", repaired_count)
@@ -345,24 +366,29 @@ class SyncManager:
                 video.title,
             )
             service.update_video_status(video, status=DownloadStatus.DOWNLOADING)
-            download_path = self.youtube_dl.download_video(
+            download_result = self.youtube_dl.download_video(
                 video.webpage_url,
                 channel.name,
                 preferred_resolution=channel.preferred_resolution,
                 prefer_hdr=channel.prefer_hdr,
             )
+            download_path = download_result.media_path
+            subtitle_path = download_result.subtitle_path
             status = DownloadStatus.COMPLETED if download_path else DownloadStatus.SKIPPED
             service.update_video_status(
                 video,
                 status=status,
                 download_path=str(download_path) if download_path else None,
+                subtitle_path=str(subtitle_path) if subtitle_path else None,
             )
             logger.info(
-                "Managed download finished: channel_id=%s video_id=%s status=%s path=%s",
+                "Managed download finished: channel_id=%s video_id=%s "
+                "status=%s path=%s subtitle=%s",
                 channel.id,
                 video.id,
                 status.value,
                 download_path,
+                subtitle_path,
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception("Video download failed for video_id=%s", video_id)

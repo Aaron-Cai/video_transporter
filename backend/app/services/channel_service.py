@@ -243,10 +243,12 @@ class ChannelService:
         *,
         status: DownloadStatus,
         download_path: str | None = None,
+        subtitle_path: str | None = None,
         error_message: str | None = None,
     ) -> Video:
         video.status = status
         video.download_path = download_path
+        video.subtitle_path = subtitle_path
         video.error_message = error_message
         if status == DownloadStatus.COMPLETED:
             video.downloaded_at = datetime.utcnow()
@@ -257,8 +259,14 @@ class ChannelService:
         self.db.refresh(video)
         return video
 
-    def update_video_download_path(self, video: Video, download_path: str) -> Video:
+    def update_video_download_path(
+        self,
+        video: Video,
+        download_path: str,
+        subtitle_path: str | None = None,
+    ) -> Video:
         video.download_path = download_path
+        video.subtitle_path = subtitle_path
         video.error_message = None
         self.db.add(video)
         self.db.commit()
@@ -272,6 +280,7 @@ class ChannelService:
             .values(
                 status=DownloadStatus.FAILED,
                 download_path=None,
+                subtitle_path=None,
                 downloaded_at=None,
                 error_message="Download was interrupted before the backend shut down or restarted.",
                 updated_at=datetime.utcnow(),

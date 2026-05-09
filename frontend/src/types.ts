@@ -15,6 +15,7 @@ export interface Video {
   webpage_url: string;
   status: VideoStatus;
   download_path: string | null;
+  subtitle_path: string | null;
   downloaded_at: string | null;
   error_message: string | null;
   created_at: string;

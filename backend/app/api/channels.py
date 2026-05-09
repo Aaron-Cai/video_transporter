@@ -58,6 +58,15 @@ def _get_video_file_or_404(video: Any) -> Path:
     return file_path
 
 
+def _get_subtitle_file_or_404(video: Any) -> Path:
+    if not video.subtitle_path:
+        raise HTTPException(status_code=404, detail="Subtitle file is not available")
+    file_path = Path(video.subtitle_path)
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Subtitle file was not found on disk")
+    return file_path
+
+
 def _channel_read_with_schedule(channel: Any, scheduler: ChannelScheduler) -> ChannelRead:
     item = ChannelRead.model_validate(channel)
     item.next_check_at = scheduler.get_next_check_at(channel.id)
@@ -113,6 +122,19 @@ def stream_video(video_id: int, db: Session = Depends(get_db)) -> FileResponse:
     )
 
 
+@router.get("/videos/{video_id}/subtitle")
+def stream_subtitle(video_id: int, db: Session = Depends(get_db)) -> FileResponse:
+    service = ChannelService(db)
+    video = _get_video_or_404(service, video_id)
+    file_path = _get_subtitle_file_or_404(video)
+    media_type, _ = mimetypes.guess_type(file_path.name)
+    return FileResponse(
+        path=file_path,
+        media_type=media_type or "text/vtt",
+        filename=file_path.name,
+    )
+
+
 @router.get("/videos/{video_id}/play", response_class=HTMLResponse)
 def play_video(video_id: int, request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     service = ChannelService(db)
@@ -121,6 +143,24 @@ def play_video(video_id: int, request: Request, db: Session = Depends(get_db)) -
     title = html.escape(video.title or file_path.name)
     stream_url = str(request.url_for("stream_video", video_id=video_id))
     source_url = html.escape(stream_url, quote=True)
+    subtitle_path = Path(video.subtitle_path) if video.subtitle_path else None
+    subtitle_url = (
+        str(request.url_for("stream_subtitle", video_id=video_id))
+        if subtitle_path and subtitle_path.is_file()
+        else None
+    )
+    subtitle_track = (
+        f'<track src="{html.escape(subtitle_url, quote=True)}" kind="subtitles" '
+        'label="Subtitles" default />'
+        if subtitle_url and subtitle_path and subtitle_path.suffix.lower() == ".vtt"
+        else ""
+    )
+    subtitle_action = (
+        f'<a href="{html.escape(subtitle_url, quote=True)}" target="_blank" '
+        'rel="noreferrer">打开字幕文件</a>'
+        if subtitle_url
+        else ""
+    )
     webpage_url = html.escape(video.webpage_url, quote=True)
     page = f"""<!doctype html>
 <html lang="zh-CN">
@@ -187,11 +227,13 @@ def play_video(video_id: int, request: Request, db: Session = Depends(get_db)) -
       <div class="player">
         <video controls autoplay preload="metadata">
           <source src="{source_url}" />
+          {subtitle_track}
           当前浏览器无法直接播放该视频，可使用下方链接单独打开或下载。
         </video>
       </div>
       <div class="actions">
         <a href="{source_url}" target="_blank" rel="noreferrer">直接打开视频流</a>
+        {subtitle_action}
         <a href="{webpage_url}" target="_blank" rel="noreferrer">打开原始视频页面</a>
       </div>
     </main>
