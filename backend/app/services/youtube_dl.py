@@ -19,7 +19,17 @@ logger = logging.getLogger("video_transporter.download")
 
 DownloaderFlavor = Literal["yt-dlp", "youtube-dl"]
 SHORTS_NAME_SUFFIX = " - Shorts"
-SUBTITLE_EXTENSIONS = {".ass", ".srt", ".ssa", ".ttml", ".vtt"}
+SUBTITLE_EXTENSIONS = {
+    ".ass",
+    ".json3",
+    ".srt",
+    ".srv1",
+    ".srv2",
+    ".srv3",
+    ".ssa",
+    ".ttml",
+    ".vtt",
+}
 
 
 @dataclass(frozen=True)
@@ -217,6 +227,8 @@ class YoutubeDlClient:
         reported_path = self._extract_destination_path(result.stdout)
         final_path = self.resolve_download_path(channel_name, video_url, reported_path)
         subtitle_path = self.resolve_subtitle_path(channel_name, video_url, final_path)
+        if final_path and subtitle_path is None:
+            subtitle_path = self.download_subtitles(video_url, channel_name, final_path)
         if final_path:
             logger.info("Video download completed: %s", final_path)
         else:
@@ -224,6 +236,24 @@ class YoutubeDlClient:
         if subtitle_path:
             logger.info("Subtitle download completed: %s", subtitle_path)
         return DownloadedVideo(media_path=final_path, subtitle_path=subtitle_path)
+
+    def download_subtitles(
+        self,
+        video_url: str,
+        channel_name: str,
+        media_path: str | Path | None = None,
+    ) -> Path | None:
+        channel_dir = self.download_dir / self._safe_dir_name(channel_name)
+        channel_dir.mkdir(parents=True, exist_ok=True)
+        output_template = str(channel_dir / "%(upload_date)s [%(id)s].%(ext)s")
+        logger.info("Starting subtitle-only download: channel=%s url=%s", channel_name, video_url)
+        self._run(self._build_subtitle_download_args(video_url, output_template))
+        subtitle_path = self.resolve_subtitle_path(channel_name, video_url, media_path)
+        if subtitle_path:
+            logger.info("Subtitle-only download completed: %s", subtitle_path)
+        else:
+            logger.info("Subtitle-only download found no subtitle output: %s", video_url)
+        return subtitle_path
 
     def resolve_download_path(
         self,
@@ -345,6 +375,24 @@ class YoutubeDlClient:
             args.extend(self._youtube_dl_subtitle_args())
         return [*args, video_url]
 
+    def _build_subtitle_download_args(
+        self,
+        video_url: str,
+        output_template: str,
+    ) -> list[str]:
+        args = [
+            "--ignore-errors",
+            "--no-overwrites",
+            "--skip-download",
+            "-o",
+            output_template,
+        ]
+        if self.downloader_flavor == "yt-dlp":
+            args.extend(self._yt_dlp_subtitle_args())
+        else:
+            args.extend(self._youtube_dl_subtitle_args())
+        return [*args, video_url]
+
     @staticmethod
     def _yt_dlp_listing_args() -> list[str]:
         # Keep yt-dlp-only flags isolated so future changes must explicitly
@@ -387,7 +435,7 @@ class YoutubeDlClient:
             "--write-subs",
             "--write-auto-subs",
             "--sub-langs",
-            "all,-live_chat",
+            "en.*,zh.*,zh-Hans,zh-Hant",
             "--sub-format",
             "vtt/srt/best",
         ]
@@ -397,7 +445,8 @@ class YoutubeDlClient:
         return [
             "--write-sub",
             "--write-auto-sub",
-            "--all-subs",
+            "--sub-lang",
+            "en,zh-Hans,zh-Hant,zh-CN,zh-TW,zh",
             "--sub-format",
             "vtt/srt/best",
         ]
@@ -470,7 +519,13 @@ class YoutubeDlClient:
             if token in lowered_name:
                 language_score = score
                 break
-        format_score = 2 if path.suffix.lower() == ".vtt" else 1
+        preferred_formats = {
+            ".vtt": 4,
+            ".srt": 3,
+            ".ttml": 2,
+            ".json3": 1,
+        }
+        format_score = preferred_formats.get(path.suffix.lower(), 0)
         return (language_score, format_score, path.stat().st_mtime)
 
     def _get_download_interval_seconds(self) -> float:
