@@ -9,6 +9,7 @@ from threading import Lock
 
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..database import SessionLocal
 from ..models import Channel, ChannelStatus, DownloadStatus
 from .channel_service import ChannelService
@@ -263,6 +264,7 @@ class SyncManager:
             entries = self.youtube_dl.list_channel_videos(channel.url, channel.scan_type)
             is_initial_sync = channel.last_sync_at is None
             new_video_count = 0
+            published_at_backfill_count = 0
             for index, entry in enumerate(entries):
                 initial_status = DownloadStatus.PENDING
                 if is_initial_sync and index >= channel.initial_download_limit:
@@ -274,6 +276,30 @@ class SyncManager:
                 )
                 if created:
                     new_video_count += 1
+                if (
+                    video.published_at is None
+                    and published_at_backfill_count
+                    < settings.publish_date_backfill_limit_per_sync
+                ):
+                    try:
+                        published_at = self.youtube_dl.get_video_published_at(video.webpage_url)
+                    except Exception:  # noqa: BLE001
+                        logger.warning(
+                            "Video published date backfill failed: video_id=%s",
+                            video.id,
+                            exc_info=True,
+                        )
+                        published_at = None
+                    if published_at is not None:
+                        video, _ = service.upsert_video(
+                            channel=channel,
+                            initial_status=initial_status,
+                            published_at=published_at,
+                            youtube_video_id=video.youtube_video_id,
+                            title=video.title,
+                            webpage_url=video.webpage_url,
+                        )
+                    published_at_backfill_count += 1
                 if channel.auto_download and video.status in AUTO_DOWNLOADABLE_STATUSES:
                     self.submit_video_download(channel.id, video.id)
             service.mark_channel_synced(channel)

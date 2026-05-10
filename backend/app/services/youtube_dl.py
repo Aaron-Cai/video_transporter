@@ -199,6 +199,12 @@ class YoutubeDlClient:
             "url": normalized_url,
         }
 
+    def get_video_published_at(self, video_url: str) -> datetime | None:
+        logger.info("Resolving video published date: %s", video_url)
+        result = self._run(self._build_video_metadata_args(video_url))
+        payload = json.loads(result.stdout or "{}")
+        return self._parse_published_at(payload)
+
     def download_video(
         self,
         video_url: str,
@@ -349,6 +355,16 @@ class YoutubeDlClient:
             args.extend(self._yt_dlp_listing_args())
         return [*args, channel_url]
 
+    @staticmethod
+    def _build_video_metadata_args(video_url: str) -> list[str]:
+        return [
+            "--ignore-errors",
+            "--no-playlist",
+            "--skip-download",
+            "--dump-single-json",
+            video_url,
+        ]
+
     def _build_download_args(
         self,
         video_url: str,
@@ -476,7 +492,9 @@ class YoutubeDlClient:
     @staticmethod
     def _parse_published_at(entry: dict[str, Any]) -> datetime | None:
         timestamp = entry.get("timestamp") or entry.get("release_timestamp")
-        if isinstance(timestamp, int | float):
+        if isinstance(timestamp, str) and timestamp.isdecimal():
+            timestamp = int(timestamp)
+        if isinstance(timestamp, int | float) and not isinstance(timestamp, bool):
             return datetime.fromtimestamp(timestamp, UTC).replace(tzinfo=None)
 
         upload_date = entry.get("upload_date") or entry.get("release_date")

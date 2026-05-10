@@ -2,7 +2,6 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 BASE_DIR = Path(__file__).resolve().parents[2]
 
 
@@ -20,6 +19,7 @@ class Settings(BaseSettings):
     log_backup_days: int = 14
     download_interval_min_seconds: float = 8.0
     download_interval_max_seconds: float = 20.0
+    publish_date_backfill_limit_per_sync: int = 20
 
     model_config = SettingsConfigDict(
         env_prefix="VIDEO_TRANSPORTER_",
