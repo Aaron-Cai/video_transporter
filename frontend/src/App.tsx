@@ -169,6 +169,9 @@ export function App() {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [refreshSeconds, setRefreshSeconds] = useState(10);
   const [now, setNow] = useState(() => new Date());
+  const [deleteTarget, setDeleteTarget] = useState<Channel | null>(null);
+  const [deleteDownloadedFiles, setDeleteDownloadedFiles] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [statusFilter, setStatusFilter] = useState<
     | "all"
     | "pending"
@@ -227,6 +230,21 @@ export function App() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isEditorOpen, submitting]);
 
+  useEffect(() => {
+    if (!deleteTarget) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && !deleting) {
+        cancelDelete();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [deleteTarget, deleting]);
+
   async function handleSelect(channelId: number) {
     const detail = await fetchChannel(channelId);
     setSelectedChannel(detail);
@@ -261,6 +279,19 @@ export function App() {
     setEditingId(null);
     setForm(initialForm);
     setIsEditorOpen(false);
+  }
+
+  function requestDelete(channel: Channel) {
+    setDeleteTarget(channel);
+    setDeleteDownloadedFiles(false);
+  }
+
+  function cancelDelete() {
+    if (deleting) {
+      return;
+    }
+    setDeleteTarget(null);
+    setDeleteDownloadedFiles(false);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -301,9 +332,19 @@ export function App() {
     }
   }
 
-  async function handleDelete(channelId: number) {
-    await deleteChannel(channelId);
-    setMessage("频道已删除");
+  async function handleDelete() {
+    if (!deleteTarget) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      await deleteChannel(deleteTarget.id, deleteDownloadedFiles);
+      setMessage(deleteDownloadedFiles ? "频道和已下载文件已删除" : "频道已删除");
+      setDeleteTarget(null);
+      setDeleteDownloadedFiles(false);
+    } finally {
+      setDeleting(false);
+    }
     resetForm();
     await loadChannels();
   }
@@ -352,6 +393,10 @@ export function App() {
     : 0;
   const completedVideoCount = selectedChannel
     ? countVideosByStatus(selectedChannel, ["completed"])
+    : 0;
+  const deleteDownloadCount = deleteTarget
+    ? deleteTarget.videos.filter((video) => video.download_path || video.subtitle_path)
+        .length
     : 0;
 
   return (
@@ -451,7 +496,7 @@ export function App() {
                 </button>
                 <button
                   className="danger"
-                  onClick={() => void handleDelete(selectedChannel.id)}
+                  onClick={() => requestDelete(selectedChannel)}
                 >
                   删除
                 </button>
@@ -719,6 +764,54 @@ export function App() {
           )}
         </section>
       </main>
+
+      {deleteTarget ? (
+        <div className="modal-overlay" onClick={cancelDelete}>
+          <section
+            className="modal-panel confirm-panel"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="panel-header">
+              <div>
+                <p className="manager-label">删除频道</p>
+                <h2>确认删除“{deleteTarget.name}”？</h2>
+              </div>
+              <button onClick={cancelDelete} disabled={deleting}>
+                关闭
+              </button>
+            </div>
+            <p className="confirm-copy">
+              删除频道会移除该频道配置和视频记录。已下载到本地的媒体文件默认保留。
+            </p>
+            <label className="checkbox delete-option">
+              <input
+                type="checkbox"
+                checked={deleteDownloadedFiles}
+                onChange={(event) =>
+                  setDeleteDownloadedFiles(event.target.checked)
+                }
+              />
+              <span>
+                同时删除已下载文件
+                {deleteDownloadCount ? `（${deleteDownloadCount} 条记录）` : ""}
+              </span>
+            </label>
+            <div className="modal-actions">
+              <button type="button" onClick={cancelDelete} disabled={deleting}>
+                取消
+              </button>
+              <button
+                className="danger"
+                type="button"
+                onClick={() => void handleDelete()}
+                disabled={deleting}
+              >
+                {deleting ? "删除中..." : "确认删除"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       {isEditorOpen ? (
         <div

@@ -281,12 +281,13 @@ def update_channel(
 @router.delete("/{channel_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_channel(
     channel_id: int,
+    delete_downloads: Annotated[bool, Query()] = False,
     db: Session = Depends(get_db),
     scheduler: ChannelScheduler = Depends(get_scheduler),
 ) -> Response:
     service = ChannelService(db)
     channel = _get_channel_or_404(service, channel_id)
-    service.delete_channel(channel)
+    service.delete_channel(channel, delete_downloads=delete_downloads)
     scheduler.reload_jobs()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

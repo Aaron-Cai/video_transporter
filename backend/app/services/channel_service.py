@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import logging
+import shutil
 from datetime import datetime
+from pathlib import Path
 
 from sqlalchemy import case, func, select, update
 from sqlalchemy.orm import Session, selectinload
 
+from ..config import settings
 from ..models import Channel, ChannelScanType, ChannelStatus, DownloadStatus, Video
 from ..schemas import ChannelCreate, ChannelListItem, ChannelUpdate
 from .youtube_dl import (
@@ -12,6 +16,8 @@ from .youtube_dl import (
     infer_channel_name_from_url,
     normalize_channel_url,
 )
+
+logger = logging.getLogger("video_transporter.channel")
 
 
 class ChannelService:
@@ -163,9 +169,65 @@ class ChannelService:
         self.db.refresh(channel)
         return channel
 
-    def delete_channel(self, channel: Channel) -> None:
+    def delete_channel(self, channel: Channel, *, delete_downloads: bool = False) -> None:
+        if delete_downloads:
+            self._delete_downloaded_files(channel)
         self.db.delete(channel)
         self.db.commit()
+
+    def _delete_downloaded_files(self, channel: Channel) -> None:
+        download_root = settings.download_dir.resolve()
+        delete_targets: set[Path] = set()
+        channel_dir = download_root / self._safe_dir_name(channel.name)
+        if channel_dir.is_dir():
+            delete_targets.add(channel_dir.resolve())
+
+        for video in channel.videos:
+            for stored_path in (video.download_path, video.subtitle_path):
+                if not stored_path:
+                    continue
+                resolved_path = self._resolve_download_child(stored_path, download_root)
+                if resolved_path is None:
+                    continue
+
+                if resolved_path.is_file():
+                    delete_targets.add(resolved_path.parent)
+                elif resolved_path.is_dir():
+                    delete_targets.add(resolved_path)
+
+        for target in sorted(delete_targets, key=lambda path: len(path.parts), reverse=True):
+            if not self._is_download_child(target, download_root):
+                logger.warning(
+                    "Skipping channel directory deletion outside download root: %s",
+                    target,
+                )
+                continue
+            if target.is_dir():
+                shutil.rmtree(target)
+            elif target.is_file():
+                target.unlink()
+
+    @staticmethod
+    def _resolve_download_child(value: str, download_root: Path) -> Path | None:
+        resolved_path = Path(value).resolve()
+        if ChannelService._is_download_child(resolved_path, download_root):
+            return resolved_path
+        logger.warning("Skipping channel file deletion outside download directory: %s", value)
+        return None
+
+    @staticmethod
+    def _is_download_child(path: Path, download_root: Path) -> bool:
+        try:
+            relative_path = path.resolve().relative_to(download_root)
+        except ValueError:
+            return False
+        return relative_path.parts != ()
+
+    @staticmethod
+    def _safe_dir_name(value: str) -> str:
+        unsafe_chars = '<>:"/\\|?*'
+        safe = "".join("_" if char in unsafe_chars else char for char in value).strip()
+        return safe or "channel"
 
     def _find_channel_by_normalized_url(
         self,

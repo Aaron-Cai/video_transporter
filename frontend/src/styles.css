@@ -65,6 +65,11 @@ button.danger {
   color: #ffd6d6;
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
 input,
 textarea,
 select {
@@ -412,6 +417,28 @@ select optgroup {
   border-radius: 28px;
   padding: 1.2rem;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4);
+}
+
+.confirm-panel {
+  width: min(520px, 100%);
+}
+
+.confirm-copy {
+  margin: 0.9rem 0 1rem;
+  color: var(--text-muted);
+}
+
+.delete-option {
+  align-items: flex-start;
+  padding: 0.9rem 1rem;
+  margin-bottom: 1rem;
+  border-radius: 18px;
+  background: rgba(255, 109, 109, 0.09);
+  border: 1px solid rgba(255, 109, 109, 0.18);
+}
+
+.delete-option input {
+  margin-top: 0.25rem;
 }
 
 .modal-actions {

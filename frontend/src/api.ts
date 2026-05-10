@@ -49,8 +49,13 @@ export async function updateChannel(
   return response.data;
 }
 
-export async function deleteChannel(channelId: number): Promise<void> {
-  await http.delete(`/channels/${channelId}`);
+export async function deleteChannel(
+  channelId: number,
+  deleteDownloads: boolean,
+): Promise<void> {
+  await http.delete(`/channels/${channelId}`, {
+    params: { delete_downloads: deleteDownloads },
+  });
 }
 
 export async function syncChannel(channelId: number): Promise<void> {
