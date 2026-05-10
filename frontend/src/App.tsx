@@ -665,6 +665,7 @@ export function App() {
               <div className="video-table">
                 <div className="video-row header">
                   <span>标题</span>
+                  <span>发布时间</span>
                   <span>状态</span>
                   <span>下载路径</span>
                   <span>字幕路径</span>
@@ -672,6 +673,7 @@ export function App() {
                 {filteredVideos.map((video) => (
                   <div className="video-row" key={video.id}>
                     <span>{video.title ?? video.youtube_video_id}</span>
+                    <span>{formatDate(video.published_at)}</span>
                     <span>{formatVideoStatus(video.status)}</span>
                     <span>
                       {video.download_path ? (

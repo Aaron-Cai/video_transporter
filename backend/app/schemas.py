@@ -57,6 +57,7 @@ class VideoRead(ApiModel):
     youtube_video_id: str
     title: str | None
     webpage_url: str
+    published_at: datetime | None
     status: DownloadStatus
     download_path: str | None
     subtitle_path: str | None

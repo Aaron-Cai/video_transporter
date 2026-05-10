@@ -356,7 +356,12 @@ select optgroup {
 
 .video-row {
   display: grid;
-  grid-template-columns: 1.35fr 0.65fr 1fr 1fr;
+  grid-template-columns:
+    minmax(180px, 1.35fr)
+    minmax(150px, 0.75fr)
+    minmax(84px, 0.45fr)
+    minmax(160px, 1fr)
+    minmax(160px, 1fr);
   gap: 0.75rem;
   padding: 0.85rem 0.9rem;
   border-radius: 16px;

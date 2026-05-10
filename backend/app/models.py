@@ -83,6 +83,7 @@ class Video(TimestampMixin, Base):
     )
     title: Mapped[str | None] = mapped_column(String(500), nullable=True)
     webpage_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     status: Mapped[DownloadStatus] = mapped_column(
         SqlEnum(DownloadStatus), default=DownloadStatus.PENDING, nullable=False
     )

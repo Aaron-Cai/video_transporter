@@ -188,6 +188,7 @@ class ChannelService:
         youtube_video_id: str,
         title: str | None,
         webpage_url: str,
+        published_at: datetime | None = None,
         initial_status: DownloadStatus = DownloadStatus.PENDING,
     ) -> tuple[Video, bool]:
         video = self.db.scalar(select(Video).where(Video.youtube_video_id == youtube_video_id))
@@ -198,6 +199,7 @@ class ChannelService:
                 youtube_video_id=youtube_video_id,
                 title=title,
                 webpage_url=webpage_url,
+                published_at=published_at,
                 status=initial_status,
             )
             self.db.add(video)
@@ -206,6 +208,7 @@ class ChannelService:
             video.channel_id = channel.id
             video.title = title or video.title
             video.webpage_url = webpage_url
+            video.published_at = published_at or video.published_at
         self.db.commit()
         self.db.refresh(video)
         return video, created

@@ -13,6 +13,7 @@ export interface Video {
   youtube_video_id: string;
   title: string | null;
   webpage_url: string;
+  published_at: string | null;
   status: VideoStatus;
   download_path: string | null;
   subtitle_path: string | null;

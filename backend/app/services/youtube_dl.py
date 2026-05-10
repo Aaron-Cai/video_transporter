@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import parse_qs, urlparse
@@ -166,6 +167,7 @@ class YoutubeDlClient:
                 "youtube_video_id": entry.get("id"),
                 "title": entry.get("title"),
                 "webpage_url": f"https://www.youtube.com/watch?v={entry.get('id')}",
+                "published_at": self._parse_published_at(entry),
             }
             for entry in entries
             if entry.get("id")
@@ -470,6 +472,22 @@ class YoutubeDlClient:
             if cleaned.lower().endswith(suffix.lower()):
                 return cleaned[: -len(suffix)].rstrip()
         return cleaned
+
+    @staticmethod
+    def _parse_published_at(entry: dict[str, Any]) -> datetime | None:
+        timestamp = entry.get("timestamp") or entry.get("release_timestamp")
+        if isinstance(timestamp, int | float):
+            return datetime.fromtimestamp(timestamp, UTC).replace(tzinfo=None)
+
+        upload_date = entry.get("upload_date") or entry.get("release_date")
+        if isinstance(upload_date, str):
+            for date_format in ("%Y%m%d", "%Y-%m-%d"):
+                try:
+                    return datetime.strptime(upload_date, date_format)
+                except ValueError:
+                    continue
+
+        return None
 
     @staticmethod
     def _safe_dir_name(value: str) -> str:

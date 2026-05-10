@@ -60,6 +60,8 @@ def ensure_schema() -> None:
             )
         if "subtitle_path" not in video_columns:
             connection.execute(text("ALTER TABLE videos ADD COLUMN subtitle_path VARCHAR(500)"))
+        if "published_at" not in video_columns:
+            connection.execute(text("ALTER TABLE videos ADD COLUMN published_at DATETIME"))
 
 
 def get_db() -> Generator[Session, None, None]:
